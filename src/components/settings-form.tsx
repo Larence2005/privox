@@ -161,9 +161,11 @@ export default function SettingsForm({ user }: SettingsFormProps) {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="never">Never</SelectItem>
+                                    <SelectItem value="24h">24 hours</SelectItem>
+                                    <SelectItem value="48h">48 hours</SelectItem>
+                                    <SelectItem value="1w">1 week</SelectItem>
+                                    <SelectItem value="1m">1 month</SelectItem>
                                     <SelectItem value="3m">3 months</SelectItem>
-                                    <SelectItem value="6m">6 months</SelectItem>
-                                    <SelectItem value="1y">1 year</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
