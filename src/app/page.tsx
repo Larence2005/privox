@@ -11,7 +11,6 @@ import {
   serverTimestamp,
   update,
   off,
-  set,
 } from "firebase/database";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -272,16 +271,14 @@ function MainLayout({ user }: { user: User }) {
         
         const updates: { [key: string]: any } = {};
         updates[`/chats/${newChatId}`] = chatData;
-        updates[`/user-chats/${user.uid}/${newChatId}`] = true;
-        // A user can't write to another user's private data from the client.
-        // This must be handled by a Cloud Function for security reasons.
-        // updates[`/user-chats/${trimmedId}/${newChatId}`] = true;
+        updates[`/user-chats/${user.uid}/${newChatId}`] = participants;
+        updates[`/user-chats/${trimmedId}/${newChatId}`] = participants;
 
         await update(ref(database), updates);
         
         toast({
             title: "Chat Created!",
-            description: "The other user will see this chat when they are added to it.",
+            description: "You can now start messaging.",
         });
         
         setIsNewChatDialogOpen(false);
@@ -292,7 +289,7 @@ function MainLayout({ user }: { user: User }) {
         toast({ 
             variant: "destructive", 
             title: "Error creating chat",
-            description: error.message || "An unexpected error occurred."
+            description: error.message || "An unexpected error occurred. Please check your security rules."
         });
     } finally {
         setIsCreatingChat(false);

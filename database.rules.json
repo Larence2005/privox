@@ -1,4 +1,3 @@
-
 {
   "rules": {
     "users": {
@@ -9,16 +8,16 @@
     },
     "chats": {
       "$chatId": {
-        ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
-        ".write": "auth != null && (newData.child('participants').child(auth.uid).exists() || data.child('participants').child(auth.uid).exists())",
+        ".read": "data.child('participants').child(auth.uid).exists()",
+        ".write": "auth != null && newData.child('participants').child(auth.uid).exists()",
         ".validate": "newData.hasChildren(['participants', 'timestamp'])"
       }
     },
     "messages": {
       "$chatId": {
         ".indexOn": "timestamp",
-        ".read": "auth != null && root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
-        ".write": "auth != null && root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
+        ".read": "root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
+        ".write": "root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
         "$messageId": {
           ".validate": "newData.hasChildren(['uid', 'displayName', 'photoURL', 'encryptedText', 'iv', 'timestamp']) && newData.child('uid').val() === auth.uid"
         }
@@ -26,8 +25,12 @@
     },
     "user-chats": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid"
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        "$chatId": {
+          ".write": "(newData.val() === null && auth.uid === $uid) || (newData.val() !== null && newData.hasChild(auth.uid))",
+          ".validate": "newData.val() === null || (newData.hasChild($uid) && newData.hasChild(auth.uid))"
+        }
       }
     }
   }
