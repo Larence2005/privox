@@ -48,7 +48,7 @@ export default function LoginPage() {
     });
 
     const signUpForm = useForm<z.infer<typeof signUpSchema>>({
-        resolver: zodResolver(signUpForm),
+        resolver: zodResolver(signUpSchema),
         defaultValues: { displayName: "", email: "", password: "" },
     });
 
