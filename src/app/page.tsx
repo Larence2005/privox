@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   update,
   off,
+  set,
 } from "firebase/database";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -147,7 +148,6 @@ function MainLayout({ user }: { user: User }) {
             const chatRef = ref(database, `chats/${chatId}`);
             const chatSnap = await get(chatRef);
             
-            // Verify the chat exists and we are a participant
             if (chatSnap.exists() && chatSnap.val().participants[user.uid]) {
                 const updates: { [key: string]: any } = {};
                 updates[`/user-chats/${user.uid}/${chatId}`] = true;
@@ -155,8 +155,7 @@ function MainLayout({ user }: { user: User }) {
 
                 await update(ref(database), updates);
             } else {
-                // Invalid invite, just delete it
-                await update(ref(database), { [`/invites/${user.uid}/${chatId}`]: null });
+                await set(ref(database, `/invites/${user.uid}/${chatId}`), null);
             }
         });
     });
@@ -306,7 +305,7 @@ function MainLayout({ user }: { user: User }) {
         
         toast({
             title: "Chat Created!",
-            description: "You can now start messaging.",
+            description: "An invite has been sent. The chat will appear when the user comes online.",
         });
         
         setIsNewChatDialogOpen(false);
