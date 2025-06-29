@@ -123,14 +123,13 @@ function MainLayout({ user }: { user: User }) {
 
   useEffect(() => {
     const chatsRef = collection(firestore, 'chats');
-    const q = query(chatsRef, where("participantUids", "array-contains", user.uid), orderBy("timestamp", "desc"));
+    const q = query(chatsRef, where("participantUids", "array-contains", user.uid));
 
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
         setIsLoading(true);
         try {
             const chatsDataPromises = querySnapshot.docs.map(async (docSnap) => {
                 const data = docSnap.data();
-                // Ensure the document has the required fields before processing
                 if (!data || !Array.isArray(data.participantUids)) {
                     console.warn(`Skipping malformed chat document: ${docSnap.id}`);
                     return null;
@@ -150,8 +149,8 @@ function MainLayout({ user }: { user: User }) {
                 };
             });
 
-            // Filter out any nulls from malformed documents
             const chatsData = (await Promise.all(chatsDataPromises)).filter(Boolean) as ChatWithParticipants[];
+            chatsData.sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0));
             setChats(chatsData);
 
         } catch (error) {
@@ -365,5 +364,3 @@ function MainLayout({ user }: { user: User }) {
     </div>
   );
 }
-
-    
