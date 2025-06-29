@@ -8,7 +8,7 @@ import {
     updateProfile
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { MessageSquare, User as UserIcon, Mail, Lock, Loader2, AlertCircle } from "lucide-react";
+import { MessageSquare, User as UserIcon, Mail, Lock, Loader2 } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,52 +37,6 @@ const signInSchema = z.object({
 });
 
 export default function LoginPage() {
-    const isApiKeyInvalid = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "mock-api-key";
-
-    if (isApiKeyInvalid) {
-        return (
-            <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 text-center">
-                <Card className="max-w-lg w-full border-destructive bg-destructive/5">
-                    <CardHeader>
-                        <div className="flex items-center justify-center mb-4">
-                           <AlertCircle className="h-8 w-8 text-destructive" />
-                        </div>
-                        <CardTitle className="text-destructive">Firebase Configuration Error</CardTitle>
-                        <CardDescription className="text-destructive/90">
-                            Your Firebase API key is missing or not configured correctly.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="text-left space-y-4 text-sm text-foreground">
-                        <p>The application cannot connect to Firebase because the necessary API key is not available. This usually happens for one of two reasons:</p>
-                        <ul className="list-disc pl-6 space-y-2">
-                            <li>You have not created a <code className="font-mono bg-muted px-1.5 py-1 rounded">.env.local</code> file in the root of your project.</li>
-                            <li>You have created the file but haven't restarted the development server.</li>
-                        </ul>
-                         <p className="font-semibold">
-                            Please follow these steps:
-                        </p>
-                         <ol className="list-decimal pl-6 space-y-2">
-                            <li>Create a file named <code className="font-mono bg-muted px-1.5 py-1 rounded">.env.local</code> in your project's root directory.</li>
-                            <li>Add your Firebase configuration variables to it.
-                               <pre className="mt-2 p-2 bg-muted rounded-md overflow-x-auto">
-                                   <code className="text-xs">
-{`NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-auth-domain
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-storage-bucket
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id`}
-                                   </code>
-                               </pre>
-                            </li>
-                            <li className="font-bold"><strong>Stop and restart the development server.</strong> This step is crucial for the changes to take effect.</li>
-                        </ol>
-                    </CardContent>
-                </Card>
-            </main>
-        )
-    }
-
     const router = useRouter();
     const { user, loading: authLoading } = useAuth();
     const { toast } = useToast();
