@@ -1,11 +1,13 @@
+
 "use client";
 
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { MessageSquare } from "lucide-react";
+import { doc, setDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
-import { auth } from "@/lib/firebase";
+import { auth, firestore } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,10 +34,19 @@ export default function LoginPage() {
   const handleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const userRef = doc(firestore, "users", user.uid);
+      await setDoc(userRef, {
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+      }, { merge: true });
       router.push("/");
     } catch (error) {
       console.error("Error signing in with Google: ", error);
+      // You might want to show a toast here
     }
   };
 
@@ -58,7 +69,7 @@ export default function LoginPage() {
           Welcome to CipherChat
         </h1>
         <p className="text-lg text-muted-foreground mb-8">
-          Secure, real-time messaging with client-side encryption.
+          Share your user ID to start a secure conversation.
         </p>
         <Button
           onClick={handleSignIn}
