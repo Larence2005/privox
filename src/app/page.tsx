@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import ChatInterface from "@/components/chat-interface";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 
 interface UserData {
   uid: string;
@@ -221,9 +222,12 @@ function MainLayout({ user }: { user: User }) {
                 <p className="text-sm text-muted-foreground truncate">{user.email}</p>
               </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="Sign out">
-              <LogOut className="h-5 w-5 text-muted-foreground" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeSwitcher />
+            <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="Sign out">
+                <LogOut className="h-5 w-5 text-muted-foreground" />
+            </Button>
+          </div>
       </header>
 
       <div className="p-4 space-y-2 shrink-0">
@@ -294,7 +298,7 @@ function MainLayout({ user }: { user: User }) {
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-background">
                 <Users className="h-16 w-16 mb-4" />
-                <h2 className="text-2xl font-semibold">Welcome to CipherChat</h2>
+                <h2 className="text-2xl font-semibold">Welcome to Privox</h2>
                 <p>Select a chat to start messaging or create a new one.</p>
             </div>
           )}

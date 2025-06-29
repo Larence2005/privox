@@ -8,7 +8,7 @@ import {
     updateProfile
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { MessageSquare, User as UserIcon, Mail, Lock, Loader2 } from "lucide-react";
+import { MessageSquare, User as UserIcon, Mail, Lock, Loader2, AlertTriangle } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,6 +24,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 
 const signUpSchema = z.object({
     displayName: z.string().min(3, { message: "Display name must be at least 3 characters." }),
@@ -35,6 +37,8 @@ const signInSchema = z.object({
     email: z.string().email({ message: "Invalid email address." }),
     password: z.string().min(1, { message: "Password is required." }),
 });
+
+const isUsingMockKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'mock-api-key';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -59,11 +63,32 @@ export default function LoginPage() {
         }
     }, [user, authLoading, router]);
 
-    const handleFirebaseError = (error: unknown) => {
-        let description = (error as Error).message;
-        if ((error as any).code?.includes('invalid-api-key')) {
-           description = "Your Firebase API key is not valid. Please ensure you have the correct key in your .env.local file and have restarted the server."
+    const handleFirebaseError = (error: any) => {
+        let description = "An unexpected error occurred. Please try again.";
+
+        if (typeof error.code === 'string') {
+            switch (error.code) {
+                case 'auth/invalid-credential':
+                    description = "Invalid email or password. Please check your credentials and try again.";
+                    break;
+                case 'auth/user-not-found':
+                    description = "No account found with this email address.";
+                    break;
+                case 'auth/wrong-password':
+                    description = "Incorrect password. Please try again.";
+                    break;
+                 case 'auth/email-already-in-use':
+                    description = "An account already exists with this email address.";
+                    break;
+                case 'auth/api-key-not-valid':
+                case 'auth/invalid-api-key':
+                    description = "Your Firebase API key is not valid. Please ensure you have the correct key in your .env.local file and have restarted the server.";
+                    break;
+                default:
+                    description = error.message;
+            }
         }
+       
         toast({
             variant: "destructive",
             title: "Authentication Failed",
@@ -142,12 +167,36 @@ export default function LoginPage() {
         );
     }
 
+    if (isUsingMockKey) {
+        return (
+            <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-8">
+                <Alert variant="destructive" className="max-w-lg">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Configuration Error</AlertTitle>
+                  <AlertDescription>
+                    <p className="mb-2">Your Firebase API key is not configured. The application is currently using a mock key.</p>
+                    <p className="font-semibold">To fix this:</p>
+                    <ol className="list-decimal list-inside space-y-1 mt-1">
+                        <li>Find your Firebase project credentials in the Firebase Console.</li>
+                        <li>Create a file named <strong>.env.local</strong> in the root of your project.</li>
+                        <li>Add your credentials to the file (e.g., <code className="bg-muted px-1 rounded">NEXT_PUBLIC_FIREBASE_API_KEY=your_key_here</code>).</li>
+                        <li><strong>Important:</strong> Stop and restart the development server.</li>
+                    </ol>
+                  </AlertDescription>
+                </Alert>
+            </div>
+        )
+    }
+
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 relative">
+            <div className="absolute top-4 right-4">
+                <ThemeSwitcher />
+            </div>
             <div className="flex flex-col items-center justify-center text-center max-w-md w-full">
                 <MessageSquare className="h-16 w-16 text-primary mb-4" />
                 <h1 className="text-4xl font-bold font-headline text-foreground mb-2">
-                    Welcome to CipherChat
+                    Welcome to Privox
                 </h1>
                 <p className="text-lg text-muted-foreground mb-8">
                     Secure, real-time messaging.
