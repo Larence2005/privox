@@ -1,9 +1,9 @@
 
 "use client";
 
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup, signInAnonymously } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, User as UserIcon } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { auth, firestore } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 
 function GoogleIcon(props: React.SVGProps<SVGSVGElement>) {
     return (
@@ -31,7 +32,7 @@ export default function LoginPage() {
     }
   }, [user, loading, router]);
 
-  const handleSignIn = async () => {
+  const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
@@ -49,6 +50,25 @@ export default function LoginPage() {
       // You might want to show a toast here
     }
   };
+
+  const handleAnonymousSignIn = async () => {
+    try {
+      const result = await signInAnonymously(auth);
+      const user = result.user;
+      const userRef = doc(firestore, "users", user.uid);
+      await setDoc(userRef, {
+        uid: user.uid,
+        displayName: `Guest-${user.uid.substring(0, 6)}`,
+        email: null,
+        photoURL: null,
+      }, { merge: true });
+      router.push("/");
+    } catch (error) {
+        console.error("Error signing in anonymously: ", error);
+        // You might want to show a toast here
+    }
+  };
+
 
   if (loading || user) {
       return (
@@ -69,16 +89,31 @@ export default function LoginPage() {
           Welcome to CipherChat
         </h1>
         <p className="text-lg text-muted-foreground mb-8">
-          Share your user ID to start a secure conversation.
+          Sign in to start a secure conversation.
         </p>
-        <Button
-          onClick={handleSignIn}
-          size="lg"
-          className="w-full max-w-xs"
-        >
-          <GoogleIcon className="h-5 w-5 mr-2 fill-white" />
-          Sign in with Google
-        </Button>
+        <div className="w-full max-w-xs space-y-4">
+          <Button
+            onClick={handleGoogleSignIn}
+            size="lg"
+            className="w-full"
+          >
+            <GoogleIcon className="h-5 w-5 mr-2 fill-white" />
+            Sign in with Google
+          </Button>
+          <div className="relative">
+            <Separator />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-sm text-muted-foreground">OR</span>
+          </div>
+          <Button
+            onClick={handleAnonymousSignIn}
+            variant="secondary"
+            size="lg"
+            className="w-full"
+          >
+            <UserIcon className="h-5 w-5 mr-2" />
+            Sign in as Guest
+          </Button>
+        </div>
         <p className="text-xs text-muted-foreground mt-8 px-4">
             By signing in, you agree to our imaginary Terms of Service.
             We promise not to read your encrypted messages, because we can't!
