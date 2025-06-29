@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { User } from "firebase/auth";
 import { doc, updateDoc } from "firebase/firestore";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { firestore } from "@/lib/firebase";
 import DeleteAccountDialog from "./delete-account-dialog";
 import DeleteChatsDialog from "./delete-chats-dialog";
+import { Separator } from "./ui/separator";
 
 interface SettingsFormProps {
     user: User;
@@ -30,6 +31,8 @@ export default function SettingsForm({ user }: SettingsFormProps) {
     // A full implementation of auto-deletion requires server-side logic (e.g., Cloud Functions).
     const [autoDeleteTime, setAutoDeleteTime] = useState("never");
     const [deleteOnInactivity, setDeleteOnInactivity] = useState(false);
+    const [accountDeletionTime, setAccountDeletionTime] = useState("never");
+    const [enableAccountDeletionOnInactivity, setEnableAccountDeletionOnInactivity] = useState(false);
 
     const handleSavePreferences = async () => {
         setIsSaving(true);
@@ -38,10 +41,12 @@ export default function SettingsForm({ user }: SettingsFormProps) {
             await updateDoc(userRef, {
                 'settings.autoDeleteTime': autoDeleteTime,
                 'settings.deleteOnInactivity': deleteOnInactivity,
+                'settings.accountDeletionTime': accountDeletionTime,
+                'settings.enableAccountDeletionOnInactivity': enableAccountDeletionOnInactivity,
             });
             toast({
                 title: "Preferences Saved",
-                description: "Your chat settings have been updated.",
+                description: "Your settings have been updated.",
             });
         } catch (error) {
             console.error("Error saving preferences:", error);
@@ -101,6 +106,7 @@ export default function SettingsForm({ user }: SettingsFormProps) {
                             variant="destructive"
                             onClick={() => setIsDeleteChatsOpen(true)}
                         >
+                            <Trash2 className="mr-2 h-4 w-4" />
                             Delete All Chats Now
                         </Button>
                     </div>
@@ -117,16 +123,56 @@ export default function SettingsForm({ user }: SettingsFormProps) {
                 <CardHeader>
                     <CardTitle className="text-destructive">Danger Zone</CardTitle>
                     <CardDescription>
-                        These actions are permanent and cannot be undone.
+                        These actions are permanent and cannot be undone. Please proceed with caution.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
-                    <Button 
-                        variant="destructive"
-                        onClick={() => setIsDeleteAccountOpen(true)}
-                    >
-                        Delete My Account
-                    </Button>
+                <CardContent className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="account-inactivity-delete" className="flex flex-col gap-1">
+                            <span className="font-medium text-destructive">Enable auto-delete for inactive account</span>
+                            <span className="font-normal text-muted-foreground text-sm">
+                                If enabled, your account and all data will be permanently deleted after a period of inactivity.
+                            </span>
+                        </Label>
+                        <Switch
+                            id="account-inactivity-delete"
+                            checked={enableAccountDeletionOnInactivity}
+                            onCheckedChange={setEnableAccountDeletionOnInactivity}
+                        />
+                    </div>
+
+                    {enableAccountDeletionOnInactivity && (
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <Label htmlFor="account-auto-delete" className="shrink-0">
+                                Delete account after
+                            </Label>
+                            <Select value={accountDeletionTime} onValueChange={setAccountDeletionTime}>
+                                <SelectTrigger id="account-auto-delete" className="w-full sm:w-[200px] border-destructive focus:ring-destructive">
+                                    <SelectValue placeholder="Select inactivity period" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="never">Never</SelectItem>
+                                    <SelectItem value="3m">3 months</SelectItem>
+                                    <SelectItem value="6m">6 months</SelectItem>
+                                    <SelectItem value="1y">1 year</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    
+                    <Separator className="bg-destructive/20" />
+
+                    <div>
+                        <Button 
+                            variant="destructive"
+                            onClick={() => setIsDeleteAccountOpen(true)}
+                        >
+                            Delete My Account Now
+                        </Button>
+                        <p className="text-sm text-muted-foreground mt-2">
+                           Permanently delete your account and all associated data immediately.
+                        </p>
+                    </div>
                 </CardContent>
             </Card>
 

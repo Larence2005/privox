@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { firestore } from "@/lib/firebase";
+import { firestore, auth } from "@/lib/firebase";
 
 interface DeleteAccountDialogProps {
     isOpen: boolean;
