@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import type { User } from "firebase/auth";
-import { collection, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle } from "lucide-react";
 
 import {
@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { firestore } from "@/lib/firebase";
+import { database } from "@/lib/firebase";
 
 interface DeleteChatsDialogProps {
     isOpen: boolean;
@@ -33,20 +33,32 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
         setIsDeleting(true);
 
         try {
-            const chatsQuery = query(collection(firestore, "chats"), where("participantUids", "array-contains", user.uid));
-            const chatsSnapshot = await getDocs(chatsQuery);
+            const userChatsRef = ref(database, `userChats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
             
-            if (chatsSnapshot.empty) {
+            if (!userChatsSnap.exists()) {
                 toast({ title: "No chats to delete." });
                 return;
             }
 
-            const batch = writeBatch(firestore);
-            chatsSnapshot.forEach(chatDoc => {
-                batch.delete(chatDoc.ref);
+            const chatIds = Object.keys(userChatsSnap.val());
+            const updates: { [key: string]: null } = {};
+
+            const chatParticipantPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}/participantUids`)));
+            const chatParticipantSnaps = await Promise.all(chatParticipantPromises);
+
+            chatIds.forEach((chatId, index) => {
+                updates[`/chats/${chatId}`] = null;
+                updates[`/messages/${chatId}`] = null;
+                const participants = chatParticipantSnaps[index].val();
+                if (participants && Array.isArray(participants)) {
+                    participants.forEach(p_uid => {
+                        updates[`/userChats/${p_uid}/${chatId}`] = null;
+                    });
+                }
             });
             
-            await batch.commit();
+            await update(ref(database), updates);
 
             toast({
                 title: "Success",

@@ -4,23 +4,18 @@
 import { useState, useEffect } from "react";
 import type { User } from "firebase/auth";
 import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  Timestamp,
-  getDoc,
-  doc,
-  setDoc,
+  ref,
+  onValue,
+  get,
+  update,
   serverTimestamp,
-  orderBy,
-} from "firebase/firestore";
+} from "firebase/database";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { useAuth } from "@/hooks/use-auth";
-import { firestore, auth } from "@/lib/firebase";
+import { database, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -51,7 +46,7 @@ interface Chat {
   id: string;
   participantUids: string[];
   lastMessage?: string;
-  timestamp: Timestamp;
+  timestamp: number;
 }
 
 export interface ChatWithParticipants extends Chat {
@@ -77,7 +72,6 @@ export default function Home() {
                     <Skeleton className="h-10 w-10 rounded-full" />
                     <div className="flex-1 space-y-2">
                         <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-24" />
                     </div>
                 </div>
                 <div className="p-2 space-y-2">
@@ -123,34 +117,54 @@ function MainLayout({ user }: { user: User }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(
-      collection(firestore, "chats"), 
-      where("participantUids", "array-contains", user.uid),
-      orderBy("timestamp", "desc")
-    );
+    const userChatsRef = ref(database, 'userChats/' + user.uid);
 
-    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-      setIsLoading(true);
-      const chatsData: ChatWithParticipants[] = await Promise.all(
-        querySnapshot.docs.map(async (docSnapshot) => {
-          const chatData = docSnapshot.data() as Omit<Chat, 'id'>;
-          const participantPromises = chatData.participantUids.map(uid => getDoc(doc(firestore, "users", uid)));
-          const participantDocs = await Promise.all(participantPromises);
-          const participants = participantDocs.filter(pDoc => pDoc.exists()).map(pDoc => pDoc.data() as UserData);
-          
-          return {
-            id: docSnapshot.id,
-            ...chatData,
-            participants,
-          };
-        })
-      );
-      setChats(chatsData);
-      setIsLoading(false);
+    const unsubscribe = onValue(userChatsRef, async (snapshot) => {
+        setIsLoading(true);
+        if (!snapshot.exists()) {
+            setChats([]);
+            setIsLoading(false);
+            return;
+        }
+
+        const chatIds = Object.keys(snapshot.val());
+        
+        try {
+            const chatsData = await Promise.all(
+                chatIds.map(async (chatId) => {
+                    const chatSnap = await get(ref(database, `chats/${chatId}`));
+                    if (!chatSnap.exists()) return null;
+
+                    const chatData = chatSnap.val() as Omit<Chat, 'id'>;
+
+                    const participantPromises = chatData.participantUids.map(uid => get(ref(database, `users/${uid}`)));
+                    const participantSnaps = await Promise.all(participantPromises);
+                    const participants = participantSnaps
+                        .filter(pSnap => pSnap.exists())
+                        .map(pSnap => pSnap.val() as UserData);
+
+                    return {
+                        id: chatId,
+                        ...chatData,
+                        participants,
+                    };
+                })
+            );
+
+            const validChats = chatsData.filter(c => c !== null) as ChatWithParticipants[];
+            validChats.sort((a, b) => b.timestamp - a.timestamp);
+            setChats(validChats);
+
+        } catch (error) {
+            console.error("Error fetching chats data:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not load your chats.' });
+        } finally {
+            setIsLoading(false);
+        }
     });
 
     return () => unsubscribe();
-  }, [user.uid]);
+  }, [user.uid, toast]);
 
   const handleSignOut = async () => {
     await auth.signOut();
@@ -175,8 +189,8 @@ function MainLayout({ user }: { user: User }) {
 
     setIsCreatingChat(true);
     try {
-        const otherUserRef = doc(firestore, "users", trimmedId);
-        const otherUserSnap = await getDoc(otherUserRef);
+        const otherUserRef = ref(database, "users/" + trimmedId);
+        const otherUserSnap = await get(otherUserRef);
 
         if (!otherUserSnap.exists()) {
             toast({ variant: "destructive", title: "User not found." });
@@ -185,19 +199,25 @@ function MainLayout({ user }: { user: User }) {
         }
 
         const chatId = [user.uid, trimmedId].sort().join('_');
-        const chatRef = doc(firestore, "chats", chatId);
-        const chatSnap = await getDoc(chatRef);
+        const chatRef = ref(database, "chats/" + chatId);
+        const chatSnap = await get(chatRef);
 
         if (chatSnap.exists()) {
             const existingChat = chats.find(c => c.id === chatId);
             if(existingChat) setSelectedChat(existingChat);
         } else {
-            await setDoc(chatRef, {
+            const chatData = {
                 participantUids: [user.uid, trimmedId],
                 timestamp: serverTimestamp(),
                 lastMessage: "Chat created"
-            });
-            // No need to set selected chat here, the onSnapshot listener will pick it up
+            };
+
+            const updates: { [key: string]: any } = {};
+            updates[`/chats/${chatId}`] = chatData;
+            updates[`/userChats/${user.uid}/${chatId}`] = true;
+            updates[`/userChats/${trimmedId}/${chatId}`] = true;
+
+            await update(ref(database), updates);
         }
         
         setIsNewChatDialogOpen(false);
@@ -275,7 +295,7 @@ function MainLayout({ user }: { user: User }) {
                     </div>
                     {chat.timestamp && (
                          <div className="text-xs text-muted-foreground self-start">
-                            {chat.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                     )}
                 </button>

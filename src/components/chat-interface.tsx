@@ -4,19 +4,17 @@
 import { useState, useEffect, useRef } from "react";
 import type { User } from "firebase/auth";
 import {
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  onSnapshot,
+  ref,
+  onValue,
+  push,
   serverTimestamp,
-  Timestamp,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
+  update,
+  orderByChild,
+  query
+} from "firebase/database";
 import { Send, ArrowLeft } from "lucide-react";
 import type { ChatWithParticipants } from "@/app/page";
-import { firestore } from "@/lib/firebase";
+import { database } from "@/lib/firebase";
 import { encryptMessage, decryptMessage } from "@/lib/crypto";
 import Message from "./message";
 import { Button } from "./ui/button";
@@ -31,7 +29,7 @@ interface ChatMessage {
   iv: string;
   encryptedText: string;
   decryptedText: string;
-  timestamp: Timestamp;
+  timestamp: number;
 }
 
 export default function ChatInterface({ 
@@ -56,29 +54,39 @@ export default function ChatInterface({
   useEffect(() => {
     if (!chat.id) return;
 
-    const q = query(collection(firestore, "chats", chat.id, "messages"), orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+    const messagesRef = ref(database, "messages/" + chat.id);
+    const messagesQuery = query(messagesRef, orderByChild("timestamp"));
+    
+    const unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
       const msgs: ChatMessage[] = [];
-      for (const doc of querySnapshot.docs) {
-        const data = doc.data();
-        if (!data.timestamp) continue;
-        try {
-            const decryptedText = await decryptMessage(data.encryptedText, data.iv);
-            msgs.push({
-              id: doc.id,
-              uid: data.uid,
-              displayName: data.displayName,
-              photoURL: data.photoURL,
-              iv: data.iv,
-              encryptedText: data.encryptedText,
-              decryptedText,
-              timestamp: data.timestamp,
-            });
-        } catch (error) {
-            console.error("Failed to decrypt a message:", error);
-        }
+      if (!snapshot.exists()) {
+        setMessages([]);
+        return;
       }
-      setMessages(msgs);
+      
+      const messagesData = snapshot.val();
+      const messagePromises = Object.entries(messagesData).map(async ([id, data]: [string, any]) => {
+        if (!data.timestamp) return null;
+        try {
+          const decryptedText = await decryptMessage(data.encryptedText, data.iv);
+          return {
+            id,
+            uid: data.uid,
+            displayName: data.displayName,
+            photoURL: data.photoURL,
+            iv: data.iv,
+            encryptedText: data.encryptedText,
+            decryptedText,
+            timestamp: data.timestamp,
+          };
+        } catch (error) {
+          console.error("Failed to decrypt a message:", error);
+          return null;
+        }
+      });
+      
+      const resolvedMessages = (await Promise.all(messagePromises)).filter(m => m !== null) as ChatMessage[];
+      setMessages(resolvedMessages);
     });
 
     return () => unsubscribe();
@@ -102,10 +110,11 @@ export default function ChatInterface({
       timestamp: serverTimestamp(),
     };
 
-    await addDoc(collection(firestore, "chats", chat.id, "messages"), messageData);
+    const messagesRef = ref(database, "messages/" + chat.id);
+    await push(messagesRef, messageData);
 
-    const chatRef = doc(firestore, "chats", chat.id);
-    await updateDoc(chatRef, {
+    const chatRef = ref(database, "chats/" + chat.id);
+    await update(chatRef, {
         lastMessage: currentMessage.length > 40 ? `${currentMessage.substring(0, 40)}...` : currentMessage,
         timestamp: serverTimestamp(),
     });

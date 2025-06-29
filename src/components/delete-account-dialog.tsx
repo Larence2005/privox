@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { collection, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { firestore, auth } from "@/lib/firebase";
+import { database, auth } from "@/lib/firebase";
 import { Label } from "@/components/ui/label";
 
 interface DeleteAccountDialogProps {
@@ -65,22 +65,32 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                 return;
             }
 
-            // Re-authenticate the user with their password
             const credential = EmailAuthProvider.credential(currentUser.email, password);
             await reauthenticateWithCredential(currentUser, credential);
 
-            // If re-authentication is successful, proceed with deletion
-            const chatsQuery = query(collection(firestore, "chats"), where("participantUids", "array-contains", user.uid));
-            const chatsSnapshot = await getDocs(chatsQuery);
-            const batch = writeBatch(firestore);
-            chatsSnapshot.forEach(chatDoc => {
-                batch.delete(chatDoc.ref);
-            });
+            const userChatsRef = ref(database, `userChats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
+            const updates: { [key: string]: null } = {};
 
-            const userDocRef = doc(firestore, "users", user.uid);
-            batch.delete(userDocRef);
-            
-            await batch.commit();
+            if (userChatsSnap.exists()) {
+                const chatIds = Object.keys(userChatsSnap.val());
+                const chatParticipantPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}/participantUids`)));
+                const chatParticipantSnaps = await Promise.all(chatParticipantPromises);
+
+                chatIds.forEach((chatId, index) => {
+                    updates[`/chats/${chatId}`] = null;
+                    updates[`/messages/${chatId}`] = null;
+                    const participants = chatParticipantSnaps[index].val();
+                    if (participants && Array.isArray(participants)) {
+                        participants.forEach(p_uid => {
+                            updates[`/userChats/${p_uid}/${chatId}`] = null;
+                        });
+                    }
+                });
+            }
+
+            updates[`/users/${user.uid}`] = null;
+            await update(ref(database), updates);
 
             await deleteUser(currentUser);
 
@@ -96,12 +106,10 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
         } catch (error: any) {
             console.error("Error deleting account:", error);
             let description = "An unexpected error occurred. Please try again.";
-            if (error.code === 'auth/wrong-password') {
+            if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 description = "The password you entered is incorrect. Please try again.";
             } else if (error.code === 'auth/too-many-requests') {
                 description = "Too many failed attempts. Please try again later."
-            } else if (error.code === 'auth/invalid-credential') {
-                 description = "The password you entered is incorrect. Please try again.";
             }
             toast({
                 variant: "destructive",
