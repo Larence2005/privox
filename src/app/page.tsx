@@ -224,8 +224,8 @@ function MainLayout({ user }: { user: User }) {
           </div>
           <div className="flex items-center gap-2">
             <ThemeSwitcher />
-            <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="Sign out">
-                <LogOut className="h-5 w-5 text-muted-foreground" />
+            <Button variant="destructive" size="icon" onClick={handleSignOut} aria-label="Sign out">
+                <LogOut className="h-5 w-5" />
             </Button>
           </div>
       </header>
