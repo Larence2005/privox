@@ -1,44 +1,62 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if a user is signed in
-    function isSignedIn() {
+
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper function to check if the user is a participant of a chat
-    function isChatParticipant(chatId) {
-      return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids;
+    // Helper function to check if a user is a participant in a chat
+    // This is more robust as it checks for existence and type.
+    function isChatParticipant(chatData) {
+      return 'participantUids' in chatData &&
+             chatData.participantUids is list &&
+             request.auth.uid in chatData.participantUids;
     }
 
-    // Users can read anyone's profile, but only write to their own.
+    // Rules for user profiles
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isAuthenticated();
+      // Allow creation only if the user is creating their own document
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Allow updates and deletes only by the user themselves
+      allow update, delete: if isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Chat documents
+    // Rules for chat documents
     match /chats/{chatId} {
-      // A user can read a chat document if they are one of the participants.
-      // Firestore security rules will apply this to every document returned by a query.
-      // Since our query is `where('participantUids', 'array-contains', auth.uid)`,
-      // every document will match this rule, and the query will succeed.
-      allow read: if isChatParticipant(chatId);
+      // A user can read a chat document only if they are a participant.
+      // This rule secures both direct gets and list queries.
+      allow read: if isAuthenticated() && isChatParticipant(resource.data);
 
-      // A user can create a chat if they are signed in and their UID is in the participants list.
-      // They can update a chat (e.g., lastMessage) only if they are a participant.
-      allow write: if isChatParticipant(chatId);
+      // A user can create a chat if they are listed in the participants.
+      allow create: if isAuthenticated() && isChatParticipant(request.resource.data);
+      
+      // A user can update a chat (e.g., lastMessage) if they are a participant.
+      allow update: if isAuthenticated() && isChatParticipant(resource.data);
+      
+      // Disallow deletion for now to prevent one user from deleting a chat for another.
+      allow delete: if false; 
     }
-    
-    // Messages subcollection
-    match /chats/{chatId}/messages/{messageId} {
-      // A user can read messages in a chat if they are a participant.
-      allow read: if isChatParticipant(chatId);
 
-      // A user can write (create) a message if they are a participant
-      // and the message `uid` field matches their own auth uid.
-      allow write: if isChatParticipant(chatId) && request.resource.data.uid == request.auth.uid;
+    // Rules for messages within a chat
+    match /chats/{chatId}/messages/{messageId} {
+      // Allow reading messages if the user is a participant of the parent chat.
+      // `get()` call is required here to access the parent document's data.
+      allow read: if isAuthenticated() && isChatParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data);
+      
+      // Allow creating a message if the user is a participant and the author.
+      allow create: if isAuthenticated() && 
+                       isChatParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data) &&
+                       request.resource.data.uid == request.auth.uid;
+                       
+      // Disallow updating or deleting messages for simplicity and integrity.
+      allow update, delete: if false;
     }
   }
 }
+
+    
