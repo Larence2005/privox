@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import type { User } from "firebase/auth";
-import { ref, get, update, query, orderByChild, equalTo } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle } from "lucide-react";
 
 import {
@@ -33,9 +33,8 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
         setIsDeleting(true);
 
         try {
-            const chatsRef = ref(database, 'chats');
-            const userChatsQuery = query(chatsRef, orderByChild(`participants/${user.uid}`), equalTo(true));
-            const userChatsSnap = await get(userChatsQuery);
+            const userChatsRef = ref(database, `user-chats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
             
             if (!userChatsSnap.exists()) {
                 toast({ title: "No chats to delete." });
@@ -47,10 +46,22 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
             const updates: { [key: string]: null } = {};
             const chatIds = Object.keys(userChatsSnap.val());
 
-            for (const chatId of chatIds) {
+            const chatPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}`)));
+            const chatSnaps = await Promise.all(chatPromises);
+
+            chatSnaps.forEach((chatSnap, index) => {
+                const chatId = chatIds[index];
+                if (chatSnap.exists()) {
+                    const participants = chatSnap.val().participants;
+                    if (participants) {
+                        Object.keys(participants).forEach(uid => {
+                            updates[`/user-chats/${uid}/${chatId}`] = null;
+                        });
+                    }
+                }
                 updates[`/chats/${chatId}`] = null;
                 updates[`/messages/${chatId}`] = null;
-            }
+            });
 
             if (Object.keys(updates).length > 0) {
               await update(ref(database), updates);

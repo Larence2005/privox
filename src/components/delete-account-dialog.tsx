@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { ref, get, update, query, orderByChild, equalTo } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -68,21 +68,34 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             const credential = EmailAuthProvider.credential(currentUser.email, password);
             await reauthenticateWithCredential(currentUser, credential);
 
-            const chatsRef = ref(database, 'chats');
-            const userChatsQuery = query(chatsRef, orderByChild(`participants/${user.uid}`), equalTo(true));
-            const userChatsSnap = await get(userChatsQuery);
+            const userChatsRef = ref(database, `user-chats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
             
             const updates: { [key: string]: null } = {};
 
             if (userChatsSnap.exists()) {
                 const chatIds = Object.keys(userChatsSnap.val());
-                for (const chatId of chatIds) {
+                
+                const chatPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}`)));
+                const chatSnaps = await Promise.all(chatPromises);
+
+                chatSnaps.forEach((chatSnap, index) => {
+                    const chatId = chatIds[index];
+                    if (chatSnap.exists()) {
+                        const participants = chatSnap.val().participants;
+                        if (participants) {
+                            Object.keys(participants).forEach(uid => {
+                                updates[`/user-chats/${uid}/${chatId}`] = null;
+                            });
+                        }
+                    }
                     updates[`/chats/${chatId}`] = null;
                     updates[`/messages/${chatId}`] = null;
-                }
+                });
             }
 
             updates[`/users/${user.uid}`] = null;
+            updates[`/user-chats/${user.uid}`] = null;
 
             if (Object.keys(updates).length > 0) {
                 await update(ref(database), updates);

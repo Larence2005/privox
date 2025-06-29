@@ -9,11 +9,10 @@
       }
     },
     "chats": {
-      ".indexOn": ["membersKey"],
       "$chatId": {
         ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
         ".write": "auth != null && (!data.exists() || data.child('participants').child(auth.uid).exists())",
-        ".validate": "newData.hasChildren(['participants', 'timestamp', 'lastMessage', 'membersKey']) && newData.child('participants').hasChild(auth.uid)"
+        ".validate": "newData.hasChildren(['participants', 'timestamp', 'lastMessage']) && newData.child('participants').hasChild(auth.uid)"
       }
     },
     "messages": {
@@ -24,6 +23,12 @@
           ".validate": "newData.hasChildren(['uid', 'displayName', 'photoURL', 'encryptedText', 'iv', 'timestamp']) && newData.child('uid').val() === auth.uid"
         },
         ".indexOn": "timestamp"
+      }
+    },
+    "user-chats": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
       }
     }
   }
