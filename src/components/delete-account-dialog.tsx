@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { collection, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -100,6 +100,8 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                 description = "The password you entered is incorrect. Please try again.";
             } else if (error.code === 'auth/too-many-requests') {
                 description = "Too many failed attempts. Please try again later."
+            } else if (error.code === 'auth/invalid-credential') {
+                 description = "The password you entered is incorrect. Please try again.";
             }
             toast({
                 variant: "destructive",
