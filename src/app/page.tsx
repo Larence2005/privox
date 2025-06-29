@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { useAuth } from "@/hooks/use-auth";
 import { firestore, auth } from "@/lib/firebase";
@@ -225,8 +226,10 @@ function MainLayout({ user }: { user: User }) {
           <div className="flex items-center gap-1">
             <ThemeSwitcher />
             {!user.isAnonymous && (
-              <Button variant="ghost" size="icon" aria-label="Settings">
-                <Settings className="h-5 w-5" />
+              <Button variant="ghost" size="icon" aria-label="Settings" asChild>
+                <Link href="/settings">
+                  <Settings className="h-5 w-5" />
+                </Link>
               </Button>
             )}
           </div>
