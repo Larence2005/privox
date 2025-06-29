@@ -76,19 +76,14 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             if (userChatsSnap.exists()) {
                 const chatIds = Object.keys(userChatsSnap.val());
                 
-                const chatPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}`)));
-                const chatSnaps = await Promise.all(chatPromises);
-
-                // Instead of deleting chats, we "leave" them by removing ourself from the participants list.
-                chatSnaps.forEach((chatSnap, index) => {
-                    const chatId = chatIds[index];
-                    if (chatSnap.exists()) {
-                        updates[`/chats/${chatId}/participants/${user.uid}`] = null;
-                    }
+                // For each chat, remove the current user from the participants list.
+                // This is a safe operation as rules allow a participant to modify their own status.
+                chatIds.forEach(chatId => {
+                    updates[`/chats/${chatId}/participants/${user.uid}`] = null;
                 });
             }
 
-            // Remove user's own data
+            // Remove user's own private data.
             updates[`/users/${user.uid}`] = null;
             updates[`/user-chats/${user.uid}`] = null;
 
@@ -142,7 +137,7 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                     </AlertDialogTitle>
                     <AlertDialogDescription>
                         This action is permanent and cannot be undone. This will permanently delete your account,
-                        all your chats, and remove your data from our servers.
+                        and remove you from all of your chats.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="my-2 space-y-4">
@@ -189,5 +184,3 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
         </AlertDialog>
     );
 }
-
-    

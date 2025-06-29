@@ -37,8 +37,6 @@ import ChatInterface from "@/components/chat-interface";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle } from "lucide-react";
 
 interface UserData {
   uid: string;
@@ -124,7 +122,6 @@ function MainLayout({ user }: { user: User }) {
       if (!chatData || !chatData.participants) return null;
 
       const participantUids = Object.keys(chatData.participants);
-      // A user might "leave" a chat, so we need to ensure the current user is still a participant
       if (!participantUids.includes(user.uid)) return null;
 
       const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
@@ -146,18 +143,11 @@ function MainLayout({ user }: { user: User }) {
       const chatListeners: { [key: string]: () => void } = {};
 
       const userChatsListener = onValue(userChatsRef, (snapshot) => {
-          if (!snapshot.exists()) {
-              setChats([]);
-              setIsLoading(false);
-              return;
-          }
+          const chatIds = snapshot.exists() ? Object.keys(snapshot.val()) : [];
 
-          const chatIds = Object.keys(snapshot.val());
-
-          // Clean up listeners for chats that have been removed
           Object.keys(chatListeners).forEach(chatId => {
               if (!chatIds.includes(chatId)) {
-                  chatListeners[chatId](); // This calls `off()`
+                  chatListeners[chatId]();
                   delete chatListeners[chatId];
                   setChats(prev => prev.filter(c => c.id !== chatId));
               }
@@ -169,16 +159,15 @@ function MainLayout({ user }: { user: User }) {
             return;
           }
           
-          setIsLoading(chatIds.length > 0);
+          setIsLoading(true);
 
           chatIds.forEach(chatId => {
-              if (chatListeners[chatId]) return; // Listener already exists
+              if (chatListeners[chatId]) return;
 
               const chatRef = ref(database, `chats/${chatId}`);
               const chatListener = onValue(chatRef, async (chatSnap) => {
                   if (!chatSnap.exists()) {
                       setChats(prev => prev.filter(c => c.id !== chatId));
-                      // Also remove from the user's list if it's a dangling reference
                       update(ref(database), {[`/user-chats/${user.uid}/${chatId}`]: null});
                       return;
                   };
@@ -186,7 +175,7 @@ function MainLayout({ user }: { user: User }) {
                   const newChatData = await processChatData(chatId, chatSnap.val());
 
                   setChats(prevChats => {
-                      if (!newChatData) { // Handle case where user was removed from chat
+                      if (!newChatData) {
                           return prevChats.filter(c => c.id !== chatId);
                       }
                       const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
@@ -199,7 +188,7 @@ function MainLayout({ user }: { user: User }) {
                       newChats.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
                       return newChats;
                   });
-                   // Set loading to false once all initial chats seem to be loaded
+                   
                   if (Object.keys(chatListeners).length === chatIds.length) {
                     setIsLoading(false);
                   }
@@ -212,7 +201,7 @@ function MainLayout({ user }: { user: User }) {
           });
       }, (error) => {
           console.error("User chats listener error:", error);
-          toast({ variant: 'destructive', title: 'Error', description: 'Failed to listen for chat updates.' });
+          toast({ variant: 'destructive', title: 'Error', description: 'Failed to listen for chat updates. Please check your network and security rules.' });
           setIsLoading(false);
       });
 
@@ -250,10 +239,10 @@ function MainLayout({ user }: { user: User }) {
         const otherUserSnap = await get(ref(database, `users/${trimmedId}`));
         if (!otherUserSnap.exists()) {
             toast({ variant: "destructive", title: "Error", description: "User not found." });
+            setIsCreatingChat(false);
             return;
         }
 
-        // Check if a chat with this user already exists to avoid duplicates.
         const existingChat = chats.find(chat => 
             Object.keys(chat.participants).length === 2 &&
             chat.participants[user.uid] &&
@@ -265,6 +254,7 @@ function MainLayout({ user }: { user: User }) {
             setSelectedChat(existingChat);
             setIsNewChatDialogOpen(false);
             setNewChatUserId("");
+            setIsCreatingChat(false);
             return;
         }
 
@@ -280,15 +270,19 @@ function MainLayout({ user }: { user: User }) {
             createdBy: user.uid,
         };
         
-        // This is a multi-path update that writes the chat and updates both users' chat lists.
-        // It relies on security rules allowing a user to write to another user's list
-        // ONLY when creating a chat where they are a participant.
         const updates: { [key: string]: any } = {};
         updates[`/chats/${newChatId}`] = chatData;
         updates[`/user-chats/${user.uid}/${newChatId}`] = true;
-        updates[`/user-chats/${trimmedId}/${newChatId}`] = true;
+        // A user can't write to another user's private data from the client.
+        // This must be handled by a Cloud Function for security reasons.
+        // updates[`/user-chats/${trimmedId}/${newChatId}`] = true;
 
         await update(ref(database), updates);
+        
+        toast({
+            title: "Chat Created!",
+            description: "The other user will see this chat when they are added to it.",
+        });
         
         setIsNewChatDialogOpen(false);
         setNewChatUserId("");
@@ -441,5 +435,3 @@ function MainLayout({ user }: { user: User }) {
     </div>
   );
 }
-
-    
