@@ -49,7 +49,7 @@ interface UserData {
 
 interface Chat {
   id: string;
-  participants: string[];
+  participantUids: string[];
   lastMessage?: string;
   timestamp: Timestamp;
 }
@@ -133,7 +133,7 @@ function MainLayout({ user }: { user: User }) {
       setIsLoading(true);
       const chatsData: ChatWithParticipants[] = await Promise.all(
         querySnapshot.docs.map(async (docSnapshot) => {
-          const chatData = docSnapshot.data() as Omit<Chat, 'id'> & { participantUids: string[] };
+          const chatData = docSnapshot.data() as Omit<Chat, 'id'>;
           const participantPromises = chatData.participantUids.map(uid => getDoc(doc(firestore, "users", uid)));
           const participantDocs = await Promise.all(participantPromises);
           const participants = participantDocs.filter(pDoc => pDoc.exists()).map(pDoc => pDoc.data() as UserData);
@@ -180,6 +180,7 @@ function MainLayout({ user }: { user: User }) {
 
         if (!otherUserSnap.exists()) {
             toast({ variant: "destructive", title: "User not found." });
+            setIsCreatingChat(false);
             return;
         }
 
