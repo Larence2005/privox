@@ -1,36 +1,59 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // --- Helper Functions ---
     function isSignedIn() {
       return request.auth != null;
     }
+    
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    // Checks if the requesting user is a participant in an *existing* chat.
+    function isParticipant(chatId) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      return isSignedIn() &&
+             chatDoc.data.participantUids is list &&
+             request.auth.uid in chatDoc.data.participantUids;
+    }
+    
+    // --- Collection Rules ---
 
+    // USERS collection
     match /users/{userId} {
+      // Any authenticated user can read public profile data.
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      // Only the user themself can create or update their own profile.
+      allow write: if isUser(userId);
     }
 
+    // CHATS collection
     match /chats/{chatId} {
-      // A user can read a chat document IF their UID is in the participantUids array.
-      // This is the standard, secure way to protect queries using 'array-contains'.
-      allow read: if isSignedIn() && request.auth.uid in resource.data.participantUids;
+      // Allow read if the user is a participant.
+      // This rule is enforced by Firestore on every document returned by a query.
+      allow read: if isParticipant(chatId);
+
+      // Allow a user to CREATE a chat if they are one of the two participants.
+      // This rule inspects the data being sent in the request.
+      allow create: if isSignedIn()
+                     && request.resource.data.participantUids is list
+                     && request.resource.data.participantUids.size() == 2
+                     && request.auth.uid in request.resource.data.participantUids;
       
-      // A user can create a chat IF they are a participant in the new chat.
-      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participantUids;
-      
-      // A user can update a chat's metadata (e.g. lastMessage) IF they are a participant.
-      allow update: if isSignedIn() && request.auth.uid in resource.data.participantUids;
-      
-      // Deleting chats is handled by a batch job or Cloud Function, not directly by users.
+      // Allow a user to UPDATE a chat (e.g., for new messages) if they are a participant.
+      // This rule inspects the existing data on the server.
+      allow update: if isParticipant(chatId);
+
+      // Disallow deleting chats for now.
       allow delete: if false;
 
+      // MESSAGES subcollection
       match /messages/{messageId} {
-        // To read/write messages, the user must be a participant in the parent chat.
-        // The `get()` call here is efficient as it's evaluated against cached data.
-        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids;
+        // A user can read/write messages in a chat if they are a participant.
+        allow read, write: if isParticipant(chatId);
       }
     }
   }
