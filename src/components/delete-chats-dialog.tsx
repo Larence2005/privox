@@ -50,9 +50,9 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
             chatIds.forEach((chatId, index) => {
                 updates[`/chats/${chatId}`] = null;
                 updates[`/messages/${chatId}`] = null;
-                const participants = chatParticipantSnaps[index].val();
-                if (participants && Array.isArray(participants)) {
-                    participants.forEach(p_uid => {
+                const participantsObj = chatParticipantSnaps[index].val();
+                if (participantsObj) {
+                    Object.keys(participantsObj).forEach(p_uid => {
                         updates[`/userChats/${p_uid}/${chatId}`] = null;
                     });
                 }

@@ -44,7 +44,7 @@ interface UserData {
 
 interface Chat {
   id: string;
-  participantUids: string[];
+  participantUids: { [key: string]: boolean };
   lastMessage?: string;
   timestamp: number;
 }
@@ -135,9 +135,10 @@ function MainLayout({ user }: { user: User }) {
                     const chatSnap = await get(ref(database, `chats/${chatId}`));
                     if (!chatSnap.exists()) return null;
 
-                    const chatData = chatSnap.val() as Omit<Chat, 'id'>;
-
-                    const participantPromises = chatData.participantUids.map(uid => get(ref(database, `users/${uid}`)));
+                    const chatData = chatSnap.val() as Omit<Chat, 'id'> & { participantUids: { [key: string]: boolean } };
+                    
+                    const participantUids = Object.keys(chatData.participantUids);
+                    const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
                     const participantSnaps = await Promise.all(participantPromises);
                     const participants = participantSnaps
                         .filter(pSnap => pSnap.exists())
@@ -206,8 +207,12 @@ function MainLayout({ user }: { user: User }) {
             const existingChat = chats.find(c => c.id === chatId);
             if(existingChat) setSelectedChat(existingChat);
         } else {
+            const participants = {
+                [user.uid]: true,
+                [trimmedId]: true
+            };
             const chatData = {
-                participantUids: [user.uid, trimmedId],
+                participantUids: participants,
                 timestamp: serverTimestamp(),
                 lastMessage: "Chat created"
             };
