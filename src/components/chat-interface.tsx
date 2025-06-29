@@ -132,7 +132,6 @@ export default function ChatInterface({
         </Avatar>
         <div>
           <p className="font-semibold text-foreground">{otherParticipant.displayName}</p>
-          <p className="text-sm text-muted-foreground">{otherParticipant.email}</p>
         </div>
       </header>
 

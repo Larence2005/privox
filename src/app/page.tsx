@@ -220,7 +220,6 @@ function MainLayout({ user }: { user: User }) {
               </Avatar>
               <div className="overflow-hidden">
                 <p className="font-semibold truncate">{user.displayName}</p>
-                <p className="text-sm text-muted-foreground truncate">{user.email}</p>
               </div>
           </div>
           <div className="flex items-center gap-1">
