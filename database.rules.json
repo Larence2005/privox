@@ -1,3 +1,4 @@
+
 {
   "rules": {
     "users": {
@@ -9,7 +10,7 @@
     "chats": {
       "$chatId": {
         ".read": "data.child('participants').child(auth.uid).exists()",
-        ".write": "auth != null && newData.child('participants').child(auth.uid).exists()",
+        ".write": "data.child('participants').child(auth.uid).exists() || (!data.exists() && newData.child('participants').child(auth.uid).exists())",
         ".validate": "newData.hasChildren(['participants', 'timestamp'])"
       }
     },
@@ -26,10 +27,14 @@
     "user-chats": {
       "$uid": {
         ".read": "auth.uid === $uid",
-        ".write": "auth.uid === $uid",
+        ".write": "auth.uid === $uid"
+      }
+    },
+    "invites": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
         "$chatId": {
-          ".write": "(newData.val() === null && auth.uid === $uid) || (newData.val() !== null && newData.hasChild(auth.uid))",
-          ".validate": "newData.val() === null || (newData.hasChild($uid) && newData.hasChild(auth.uid))"
+          ".write": "(auth.uid !== $uid && !data.exists() && newData.val() === true) || (auth.uid === $uid && newData.val() === null)"
         }
       }
     }

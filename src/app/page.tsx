@@ -137,6 +137,34 @@ function MainLayout({ user }: { user: User }) {
   }, [user.uid]);
 
   useEffect(() => {
+    const invitesRef = ref(database, `invites/${user.uid}`);
+    
+    const listener = onValue(invitesRef, (snapshot) => {
+        if (!snapshot.exists()) return;
+
+        const invites = snapshot.val();
+        Object.keys(invites).forEach(async (chatId) => {
+            const chatRef = ref(database, `chats/${chatId}`);
+            const chatSnap = await get(chatRef);
+            
+            // Verify the chat exists and we are a participant
+            if (chatSnap.exists() && chatSnap.val().participants[user.uid]) {
+                const updates: { [key: string]: any } = {};
+                updates[`/user-chats/${user.uid}/${chatId}`] = true;
+                updates[`/invites/${user.uid}/${chatId}`] = null;
+
+                await update(ref(database), updates);
+            } else {
+                // Invalid invite, just delete it
+                await update(ref(database), { [`/invites/${user.uid}/${chatId}`]: null });
+            }
+        });
+    });
+
+    return () => off(invitesRef, 'value', listener);
+  }, [user.uid]);
+
+  useEffect(() => {
       setIsLoading(true);
       const userChatsRef = ref(database, `user-chats/${user.uid}`);
       const chatListeners: { [key: string]: () => void } = {};
@@ -271,8 +299,8 @@ function MainLayout({ user }: { user: User }) {
         
         const updates: { [key: string]: any } = {};
         updates[`/chats/${newChatId}`] = chatData;
-        updates[`/user-chats/${user.uid}/${newChatId}`] = participants;
-        updates[`/user-chats/${trimmedId}/${newChatId}`] = participants;
+        updates[`/user-chats/${user.uid}/${newChatId}`] = true;
+        updates[`/invites/${trimmedId}/${newChatId}`] = true;
 
         await update(ref(database), updates);
         
