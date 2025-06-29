@@ -114,15 +114,19 @@ export default function LoginPage() {
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
             const user = userCredential.user;
+            const photoURL = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${user.uid}`;
             
-            await updateProfile(user, { displayName: values.displayName });
+            await updateProfile(user, { 
+                displayName: values.displayName,
+                photoURL: photoURL,
+            });
 
             const userRef = doc(firestore, "users", user.uid);
             await setDoc(userRef, {
                 uid: user.uid,
                 displayName: values.displayName,
                 email: user.email,
-                photoURL: user.photoURL,
+                photoURL: photoURL,
             }, { merge: true });
 
             router.push("/");
@@ -140,12 +144,17 @@ export default function LoginPage() {
         try {
             const result = await signInAnonymously(auth);
             const user = result.user;
+            const displayName = `Guest-${user.uid.substring(0, 6)}`;
+            const photoURL = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${user.uid}`;
+
+            await updateProfile(user, { displayName, photoURL });
+            
             const userRef = doc(firestore, "users", user.uid);
             await setDoc(userRef, {
                 uid: user.uid,
-                displayName: `Guest-${user.uid.substring(0, 6)}`,
+                displayName: displayName,
                 email: null,
-                photoURL: null,
+                photoURL: photoURL,
             }, { merge: true });
             router.push("/");
         } catch (error) {
