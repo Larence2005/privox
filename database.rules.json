@@ -11,7 +11,16 @@
       "$chatId": {
         ".read": "data.child('participants').child(auth.uid).exists()",
         ".write": "data.child('participants').child(auth.uid).exists() || (!data.exists() && newData.child('participants').child(auth.uid).exists())",
-        ".validate": "newData.hasChildren(['participants', 'timestamp'])"
+        ".validate": "newData.hasChildren(['participants', 'timestamp', 'keys', 'createdBy'])",
+        "keys": {
+          ".validate": "!data.exists() && newData.exists()"
+        },
+        "participants": {
+            ".validate": "!data.exists() && newData.exists()"
+        },
+        "createdBy": {
+            ".validate": "!data.exists() && newData.isString()"
+        }
       }
     },
     "messages": {

@@ -37,6 +37,12 @@ import ChatInterface from "@/components/chat-interface";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { 
+    generateChatKey, 
+    exportKeyToBase64,
+    getUserMasterKey,
+    encryptMessage as encryptData,
+} from "@/lib/crypto";
 
 interface UserData {
   uid: string;
@@ -47,6 +53,7 @@ interface UserData {
 interface Chat {
   id: string;
   participants: Record<string, boolean>;
+  keys: Record<string, { encryptedKey: string, iv: string }>;
   lastMessage?: string;
   timestamp: number;
 }
@@ -244,6 +251,17 @@ export default function Home() {
             return;
         }
 
+        // --- New Encryption Flow ---
+        const newChatKey = await generateChatKey();
+        const exportedChatKey = await exportKeyToBase64(newChatKey);
+
+        const selfMasterKey = await getUserMasterKey(user.uid);
+        const otherMasterKey = await getUserMasterKey(trimmedId);
+
+        const encryptedKeyForSelf = await encryptData(exportedChatKey, selfMasterKey);
+        const encryptedKeyForOther = await encryptData(exportedChatKey, otherMasterKey);
+        // --- End New Encryption Flow ---
+
         const newChatRef = push(ref(database, 'chats'));
         const newChatId = newChatRef.key;
         if (!newChatId) throw new Error("Could not generate new chat ID");
@@ -251,6 +269,10 @@ export default function Home() {
         const participants = { [user.uid]: true, [trimmedId]: true };
         const chatData = {
             participants,
+            keys: {
+                [user.uid]: { encryptedKey: encryptedKeyForSelf.encrypted, iv: encryptedKeyForSelf.iv },
+                [trimmedId]: { encryptedKey: encryptedKeyForOther.encrypted, iv: encryptedKeyForOther.iv },
+            },
             timestamp: serverTimestamp(),
             lastMessage: "Chat created",
             createdBy: user.uid,

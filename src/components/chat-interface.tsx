@@ -13,10 +13,15 @@ import {
   update,
   off,
 } from "firebase/database";
-import { Send, ArrowLeft } from "lucide-react";
+import { Send, ArrowLeft, Loader2 } from "lucide-react";
 import type { ChatWithParticipants } from "@/app/page";
 import { database } from "@/lib/firebase";
-import { encryptMessage, decryptMessage } from "@/lib/crypto";
+import { 
+    getUserMasterKey,
+    importKeyFromBase64,
+    encryptMessage, 
+    decryptMessage,
+} from "@/lib/crypto";
 import Message from "./message";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -44,6 +49,7 @@ export default function ChatInterface({
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [chatKey, setChatKey] = useState<CryptoKey | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
@@ -53,7 +59,27 @@ export default function ChatInterface({
   }, [messages]);
 
   useEffect(() => {
-    if (!chat.id) return;
+    const deriveKey = async () => {
+        if (!chat.keys || !chat.keys[user.uid]) {
+            console.error("Chat object is missing encryption keys for the current user.");
+            return;
+        }
+        try {
+            const masterKey = await getUserMasterKey(user.uid);
+            const { encryptedKey, iv } = chat.keys[user.uid];
+            const decryptedKeyString = await decryptMessage(encryptedKey, iv, masterKey);
+            const importedChatKey = await importKeyFromBase64(decryptedKeyString);
+            setChatKey(importedChatKey);
+        } catch (error) {
+            console.error("Failed to derive chat key:", error);
+        }
+    };
+    deriveKey();
+    return () => setChatKey(null);
+  }, [chat, user.uid]);
+
+  useEffect(() => {
+    if (!chat.id || !chatKey) return;
 
     const messagesRef = ref(database, `messages/${chat.id}`);
     const q = query(messagesRef, orderByChild("timestamp"));
@@ -68,7 +94,7 @@ export default function ChatInterface({
       const messagePromises = Object.keys(messagesData).map(async (key) => {
         const data = messagesData[key];
         try {
-          const decryptedText = await decryptMessage(data.encryptedText, data.iv);
+          const decryptedText = await decryptMessage(data.encryptedText, data.iv, chatKey);
           return {
             id: key,
             ...data,
@@ -90,16 +116,16 @@ export default function ChatInterface({
     });
 
     return () => off(messagesRef, 'value', listener);
-  }, [chat.id]);
+  }, [chat.id, chatKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim() === "" || !chat.id) return;
+    if (newMessage.trim() === "" || !chat.id || !chatKey) return;
 
     const currentMessage = newMessage;
     setNewMessage("");
 
-    const { iv, encrypted } = await encryptMessage(currentMessage);
+    const { iv, encrypted } = await encryptMessage(currentMessage, chatKey);
 
     const messageData = {
       uid: user.uid,
@@ -119,11 +145,37 @@ export default function ChatInterface({
 
     await update(ref(database), updates);
   };
-
+  
   if (!otherParticipant) {
+    // This case should ideally not be reached if UI logic is correct
     return (
         <div className="flex flex-col items-center justify-center h-full bg-background text-muted-foreground p-4">
-            <p>Select a chat to start messaging.</p>
+            <p>Loading participant...</p>
+        </div>
+    );
+  }
+  
+  if (!chatKey) {
+    return (
+        <div className="flex h-screen flex-col bg-background">
+            <header className="flex items-center gap-3 p-2.5 border-b shrink-0 md:p-4">
+                 <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack}>
+                    <ArrowLeft className="h-5 w-5" />
+                    <span className="sr-only">Back to chats</span>
+                </Button>
+                <Avatar>
+                    <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
+                    <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div>
+                    <p className="font-semibold text-foreground">{otherParticipant.displayName}</p>
+                </div>
+            </header>
+            <main className="flex flex-col flex-1 items-center justify-center text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+                <p className="font-medium">Establishing secure channel...</p>
+                <p className="text-sm">Deriving encryption keys for this chat.</p>
+            </main>
         </div>
     );
   }
