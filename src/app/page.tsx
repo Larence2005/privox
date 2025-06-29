@@ -38,22 +38,23 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { 
-    generateChatKey, 
-    exportKeyToBase64,
-    getUserMasterKey,
-    encryptMessage as encryptData,
+    generateChatKey,
+    getStoredPrivateKey,
+    importPublicKeyFromBase64,
+    wrapChatKey
 } from "@/lib/crypto";
 
 interface UserData {
   uid: string;
   displayName: string | null;
   photoURL: string | null;
+  publicKey?: string;
 }
 
 interface Chat {
   id: string;
   participants: Record<string, boolean>;
-  keys: Record<string, { encryptedKey: string, iv: string }>;
+  keys: Record<string, string>; // Storing wrapped keys as base64 strings
   lastMessage?: string;
   timestamp: number;
 }
@@ -250,17 +251,24 @@ export default function Home() {
             setIsCreatingChat(false);
             return;
         }
+        
+        // --- New Public Key Encryption Flow ---
+        const mySnap = await get(ref(database, `users/${user.uid}`));
+        const myUserData = mySnap.val() as UserData;
+        const otherUserData = otherUserSnap.val() as UserData;
 
-        // --- New Encryption Flow ---
+        if (!myUserData.publicKey || !otherUserData.publicKey) {
+             throw new Error("One or both users are missing a public key.");
+        }
+
+        const myPublicKey = await importPublicKeyFromBase64(myUserData.publicKey);
+        const otherPublicKey = await importPublicKeyFromBase64(otherUserData.publicKey);
+
         const newChatKey = await generateChatKey();
-        const exportedChatKey = await exportKeyToBase64(newChatKey);
-
-        const selfMasterKey = await getUserMasterKey(user.uid);
-        const otherMasterKey = await getUserMasterKey(trimmedId);
-
-        const encryptedKeyForSelf = await encryptData(exportedChatKey, selfMasterKey);
-        const encryptedKeyForOther = await encryptData(exportedChatKey, otherMasterKey);
-        // --- End New Encryption Flow ---
+        
+        const wrappedKeyForSelf = await wrapChatKey(newChatKey, myPublicKey);
+        const wrappedKeyForOther = await wrapChatKey(newChatKey, otherPublicKey);
+        // --- End New Public Key Encryption Flow ---
 
         const newChatRef = push(ref(database, 'chats'));
         const newChatId = newChatRef.key;
@@ -270,8 +278,8 @@ export default function Home() {
         const chatData = {
             participants,
             keys: {
-                [user.uid]: { encryptedKey: encryptedKeyForSelf.encrypted, iv: encryptedKeyForSelf.iv },
-                [trimmedId]: { encryptedKey: encryptedKeyForOther.encrypted, iv: encryptedKeyForOther.iv },
+                [user.uid]: wrappedKeyForSelf,
+                [trimmedId]: wrappedKeyForOther,
             },
             timestamp: serverTimestamp(),
             lastMessage: "Chat created",
@@ -298,7 +306,7 @@ export default function Home() {
         toast({ 
             variant: "destructive", 
             title: "Error creating chat",
-            description: error.message || "An unexpected error occurred. Please check your security rules."
+            description: error.message || "An unexpected error occurred. You may need to have the other user sign in once to generate their keys."
         });
     } finally {
         setIsCreatingChat(false);

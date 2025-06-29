@@ -4,7 +4,10 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid",
+        "publicKey": {
+          ".validate": "newData.isString() && (!data.exists() || data.val() === newData.val())"
+        }
       }
     },
     "chats": {

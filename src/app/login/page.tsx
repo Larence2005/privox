@@ -13,7 +13,7 @@ import { MessageSquare, User as UserIcon, Mail, Lock, Loader2, AlertTriangle } f
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { ref, set } from "firebase/database";
+import { ref, set, get, update } from "firebase/database";
 
 import { Button } from "@/components/ui/button";
 import { auth, database } from "@/lib/firebase";
@@ -27,6 +27,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { 
+    generateMasterKeyPair, 
+    exportPublicKeyToBase64,
+    storePrivateKey 
+} from "@/lib/crypto";
 
 const signUpSchema = z.object({
     displayName: z.string().min(3, { message: "Display name must be at least 3 characters." }),
@@ -98,10 +103,27 @@ export default function LoginPage() {
         });
     }
 
+    const ensureCryptoKeys = async (user: any) => {
+        const publicKeyRef = ref(database, `users/${user.uid}/publicKey`);
+        const snapshot = await get(publicKeyRef);
+
+        if (!snapshot.exists()) {
+            toast({
+                title: "Setting up your secure account...",
+                description: "Generating your unique encryption keys.",
+            });
+            const keyPair = await generateMasterKeyPair();
+            const publicKeyB64 = await exportPublicKeyToBase64(keyPair.publicKey);
+            await update(ref(database, `users/${user.uid}`), { publicKey: publicKeyB64 });
+            await storePrivateKey(user.uid, keyPair.privateKey);
+        }
+    };
+
     const handleSignIn = async (values: z.infer<typeof signInSchema>) => {
         setIsLoading(true);
         try {
-            await signInWithEmailAndPassword(auth, values.email, values.password);
+            const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
+            await ensureCryptoKeys(userCredential.user);
             router.push("/");
         } catch (error) {
             console.error("Error signing in: ", error);
@@ -122,6 +144,10 @@ export default function LoginPage() {
                 displayName: values.displayName,
                 photoURL: photoURL,
             });
+            
+            const keyPair = await generateMasterKeyPair();
+            const publicKeyB64 = await exportPublicKeyToBase64(keyPair.publicKey);
+            await storePrivateKey(user.uid, keyPair.privateKey);
 
             const userRef = ref(database, "users/" + user.uid);
             await set(userRef, {
@@ -129,8 +155,9 @@ export default function LoginPage() {
                 displayName: values.displayName,
                 email: user.email,
                 photoURL: photoURL,
+                publicKey: publicKeyB64,
             });
-
+            
             router.push("/");
         } catch (error) {
             console.error("Error signing up: ", error);
@@ -139,7 +166,6 @@ export default function LoginPage() {
             setIsLoading(false);
         }
     };
-
 
     const handleAnonymousSignIn = async () => {
         setIsLoading(true);
@@ -151,13 +177,19 @@ export default function LoginPage() {
 
             await updateProfile(user, { displayName, photoURL });
             
+            const keyPair = await generateMasterKeyPair();
+            const publicKeyB64 = await exportPublicKeyToBase64(keyPair.publicKey);
+            await storePrivateKey(user.uid, keyPair.privateKey);
+
             const userRef = ref(database, "users/" + user.uid);
             await set(userRef, {
                 uid: user.uid,
                 displayName: displayName,
                 email: null,
                 photoURL: photoURL,
+                publicKey: publicKeyB64,
             });
+
             router.push("/");
         } catch (error) {
             console.error("Error signing in anonymously: ", error);
@@ -177,7 +209,7 @@ export default function LoginPage() {
             </div>
         );
     }
-
+    
     if (isMissingDbUrl) {
         return (
             <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-8">
@@ -377,7 +409,7 @@ export default function LoginPage() {
                 </div>
                  <p className="text-xs text-muted-foreground mt-8 px-4">
                     By signing in, you agree to our imaginary Terms of Service.
-                    We promise not to read your encrypted messages, because we can't!
+                    Your private keys are generated and stored only on this device.
                 </p>
             </div>
         </main>

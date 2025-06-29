@@ -13,12 +13,12 @@ import {
   update,
   off,
 } from "firebase/database";
-import { Send, ArrowLeft, Loader2 } from "lucide-react";
+import { Send, ArrowLeft, Loader2, ShieldAlert } from "lucide-react";
 import type { ChatWithParticipants } from "@/app/page";
 import { database } from "@/lib/firebase";
 import { 
-    getUserMasterKey,
-    importKeyFromBase64,
+    getStoredPrivateKey,
+    unwrapChatKey,
     encryptMessage, 
     decryptMessage,
 } from "@/lib/crypto";
@@ -50,6 +50,7 @@ export default function ChatInterface({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [chatKey, setChatKey] = useState<CryptoKey | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
@@ -60,22 +61,34 @@ export default function ChatInterface({
 
   useEffect(() => {
     const deriveKey = async () => {
+        setChatKey(null);
+        setKeyError(null);
+
         if (!chat.keys || !chat.keys[user.uid]) {
             console.error("Chat object is missing encryption keys for the current user.");
+            setKeyError("This chat is missing its encryption key. It may be a very old or corrupted chat.");
             return;
         }
         try {
-            const masterKey = await getUserMasterKey(user.uid);
-            const { encryptedKey, iv } = chat.keys[user.uid];
-            const decryptedKeyString = await decryptMessage(encryptedKey, iv, masterKey);
-            const importedChatKey = await importKeyFromBase64(decryptedKeyString);
+            const privateKey = await getStoredPrivateKey(user.uid);
+            if (!privateKey) {
+                setKeyError("Your private key is not found on this device. You cannot decrypt messages. Try signing in on your original device, or clear the chat and start a new one.");
+                return;
+            }
+            
+            const wrappedKeyB64 = chat.keys[user.uid];
+            const importedChatKey = await unwrapChatKey(wrappedKeyB64, privateKey);
             setChatKey(importedChatKey);
         } catch (error) {
             console.error("Failed to derive chat key:", error);
+            setKeyError("A critical error occurred while decrypting the chat key. Your local key may be corrupted or a new chat may be required.");
         }
     };
     deriveKey();
-    return () => setChatKey(null);
+    return () => {
+        setChatKey(null);
+        setKeyError(null);
+    };
   }, [chat, user.uid]);
 
   useEffect(() => {
@@ -147,7 +160,6 @@ export default function ChatInterface({
   };
   
   if (!otherParticipant) {
-    // This case should ideally not be reached if UI logic is correct
     return (
         <div className="flex flex-col items-center justify-center h-full bg-background text-muted-foreground p-4">
             <p>Loading participant...</p>
@@ -155,7 +167,7 @@ export default function ChatInterface({
     );
   }
   
-  if (!chatKey) {
+  if (!chatKey && !keyError) {
     return (
         <div className="flex h-screen flex-col bg-background">
             <header className="flex items-center gap-3 p-2.5 border-b shrink-0 md:p-4">
@@ -174,7 +186,7 @@ export default function ChatInterface({
             <main className="flex flex-col flex-1 items-center justify-center text-muted-foreground">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
                 <p className="font-medium">Establishing secure channel...</p>
-                <p className="text-sm">Deriving encryption keys for this chat.</p>
+                <p className="text-sm">Retrieving your private key and unwrapping chat key.</p>
             </main>
         </div>
     );
@@ -197,6 +209,17 @@ export default function ChatInterface({
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        {keyError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 text-destructive p-4 my-4">
+                <div className="flex items-start gap-3">
+                    <ShieldAlert className="h-6 w-6 shrink-0"/>
+                    <div>
+                        <h4 className="font-semibold">Encryption Key Error</h4>
+                        <p className="text-sm">{keyError}</p>
+                    </div>
+                </div>
+            </div>
+        )}
         {messages.map((msg) => (
           <Message key={msg.id} message={msg} isCurrentUser={msg.uid === user.uid} />
         ))}
@@ -217,8 +240,9 @@ export default function ChatInterface({
                 handleSubmit(e);
               }
             }}
+            disabled={!!keyError}
           />
-          <Button type="submit" size="icon" disabled={!newMessage.trim()} aria-label="Send Message">
+          <Button type="submit" size="icon" disabled={!newMessage.trim() || !!keyError} aria-label="Send Message">
             <Send />
           </Button>
         </form>

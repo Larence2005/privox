@@ -46,7 +46,7 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             return;
         }
 
-        if (password === '') {
+        if (!user.isAnonymous && password === '') {
             toast({
                 variant: "destructive",
                 title: "Password required",
@@ -59,14 +59,15 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
 
         try {
             const currentUser = auth.currentUser;
-            if (!currentUser || !currentUser.email) {
-                toast({ variant: "destructive", title: "Error", description: "Could not verify user. Please sign in again." });
-                setIsDeleting(false);
-                return;
+            if (!currentUser) {
+                throw new Error("Could not verify user. Please sign in again.");
             }
 
-            const credential = EmailAuthProvider.credential(currentUser.email, password);
-            await reauthenticateWithCredential(currentUser, credential);
+            // Re-authenticate if not anonymous
+            if (!currentUser.isAnonymous && currentUser.email) {
+                const credential = EmailAuthProvider.credential(currentUser.email, password);
+                await reauthenticateWithCredential(currentUser, credential);
+            }
 
             const userChatsRef = ref(database, `user-chats/${user.uid}`);
             const userChatsSnap = await get(userChatsRef);
@@ -75,15 +76,12 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
 
             if (userChatsSnap.exists()) {
                 const chatIds = Object.keys(userChatsSnap.val());
-                
-                // For each chat, remove the current user from the participants list.
-                // This is a safe operation as rules allow a participant to modify their own status.
                 chatIds.forEach(chatId => {
                     updates[`/chats/${chatId}/participants/${user.uid}`] = null;
                 });
             }
 
-            // Remove user's own private data.
+            // Remove user's private data, including public key
             updates[`/users/${user.uid}`] = null;
             updates[`/user-chats/${user.uid}`] = null;
 
@@ -92,6 +90,9 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             }
 
             await deleteUser(currentUser);
+
+            // Clear local storage for this user
+            localStorage.removeItem(`privox_privateKey_${user.uid}`);
 
             toast({
                 title: "Account Deleted",
@@ -107,6 +108,8 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             let description = "An unexpected error occurred. Please try again.";
             if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 description = "The password you entered is incorrect. Please try again.";
+            } else if (error.code === 'auth/requires-recent-login') {
+                description = "This is a sensitive operation. Please sign out and sign back in before deleting your account.";
             } else if (error.code === 'auth/too-many-requests') {
                 description = "Too many failed attempts. Please try again later."
             }
@@ -136,8 +139,8 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                         Are you absolutely sure?
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                        This action is permanent and cannot be undone. This will permanently delete your account,
-                        and remove you from all of your chats.
+                        This action is permanent and cannot be undone. This will permanently delete your account
+                        and all associated data. Your private key on this device will be erased.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="my-2 space-y-4">
@@ -154,27 +157,29 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                             autoFocus
                         />
                      </div>
-                     <div>
-                        <Label htmlFor="password">Enter your password</Label>
-                        <div className="relative mt-1">
-                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                id="password"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                className="pl-9 border-destructive focus-visible:ring-destructive"
-                            />
+                     {!user.isAnonymous && (
+                        <div>
+                            <Label htmlFor="password">Enter your password</Label>
+                            <div className="relative mt-1">
+                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="••••••••"
+                                    className="pl-9 border-destructive focus-visible:ring-destructive"
+                                />
+                            </div>
                         </div>
-                     </div>
+                     )}
                 </div>
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
                         className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                         onClick={handleAccountDelete}
-                        disabled={isDeleting || confirmationText.toLowerCase() !== 'delete my account' || password === ""}
+                        disabled={isDeleting || confirmationText.toLowerCase() !== 'delete my account' || (!user.isAnonymous && password === "")}
                     >
                         {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         I understand, delete my account

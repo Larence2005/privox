@@ -4,39 +4,55 @@
 // This file uses the Web Crypto API, which is only available in browser environments.
 // Ensure it's only called from client-side components.
 
-const SECRET = process.env.NEXT_PUBLIC_ENCRYPTION_SECRET || "default-super-secret-key-that-is-long";
+// --- Key Pair Management (RSA-OAEP for Key Wrapping) ---
 
-// --- Key Derivation and Management ---
+const getPrivateKeyLocalStorageKey = (uid: string) => `privox_privateKey_${uid}`;
 
-// Generic function to derive a key from a secret and a salt using PBKDF2.
-async function deriveKey(secret: string, salt: ArrayBuffer): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt,
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
+// Generates a new RSA-OAEP key pair for a user.
+export async function generateMasterKeyPair(): Promise<CryptoKeyPair> {
+    return crypto.subtle.generateKey(
+        {
+            name: "RSA-OAEP",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: "SHA-256",
+        },
+        true, // exportable
+        ["wrapKey", "unwrapKey"]
+    );
 }
 
-// Derives a unique master key for a user, used to encrypt/decrypt chat-specific keys.
-export async function getUserMasterKey(uid: string): Promise<CryptoKey> {
-  const salt = new TextEncoder().encode(uid);
-  return deriveKey(SECRET, salt);
+// Stores a user's private key in their browser's local storage.
+export async function storePrivateKey(uid: string, privateKey: CryptoKey): Promise<void> {
+    const exportedKey = await crypto.subtle.exportKey("pkcs8", privateKey);
+    localStorage.setItem(getPrivateKeyLocalStorageKey(uid), arrayBufferToBase64(exportedKey));
 }
+
+// Retrieves a user's private key from local storage.
+export async function getStoredPrivateKey(uid: string): Promise<CryptoKey | null> {
+    const keyB64 = localStorage.getItem(getPrivateKeyLocalStorageKey(uid));
+    if (!keyB64) return null;
+
+    const keyBuffer = base64ToArrayBuffer(keyB64);
+    try {
+        return await crypto.subtle.importKey(
+            "pkcs8",
+            keyBuffer,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            true,
+            ["unwrapKey"]
+        );
+    } catch (error) {
+        console.error("Failed to import stored private key:", error);
+        // This might happen if the key is corrupted or format changed.
+        // Clearing the invalid key.
+        localStorage.removeItem(getPrivateKeyLocalStorageKey(uid));
+        return null;
+    }
+}
+
+
+// --- Chat Key Generation and Wrapping (AES-GCM for Messages) ---
 
 // Generates a new, random, strong key for a single chat conversation.
 export async function generateChatKey(): Promise<CryptoKey> {
@@ -47,29 +63,49 @@ export async function generateChatKey(): Promise<CryptoKey> {
     );
 }
 
-// --- Key Serialization ---
-
-// Exports a CryptoKey to a Base64 string for storage.
-export async function exportKeyToBase64(key: CryptoKey): Promise<string> {
-    const rawKey = await crypto.subtle.exportKey("raw", key);
-    return arrayBufferToBase64(rawKey);
+// Wraps (encrypts) a chat key using a user's public key.
+export async function wrapChatKey(chatKey: CryptoKey, publicKey: CryptoKey): Promise<string> {
+    const wrappedKey = await crypto.subtle.wrapKey("raw", chatKey, publicKey, { name: "RSA-OAEP" });
+    return arrayBufferToBase64(wrappedKey);
 }
 
-// Imports a Base64 string back into a usable CryptoKey.
-export async function importKeyFromBase64(keyB64: string): Promise<CryptoKey> {
-    const rawKey = base64ToArrayBuffer(keyB64);
-    return crypto.subtle.importKey(
+// Unwraps (decrypts) a chat key using a user's private key.
+export async function unwrapChatKey(wrappedKeyB64: string, privateKey: CryptoKey): Promise<CryptoKey> {
+     const wrappedKeyBuffer = base64ToArrayBuffer(wrappedKeyB64);
+     return crypto.subtle.unwrapKey(
         "raw",
-        rawKey,
+        wrappedKeyBuffer,
+        privateKey,
+        { name: "RSA-OAEP" },
         { name: "AES-GCM" },
         true,
         ["encrypt", "decrypt"]
     );
 }
 
-// --- Data Encryption / Decryption ---
+// --- Key Serialization for Database Storage ---
 
-// Encrypts a string of data with a given CryptoKey.
+// Exports a CryptoKey (typically a public key) to a Base64 string for storage.
+export async function exportPublicKeyToBase64(key: CryptoKey): Promise<string> {
+    const rawKey = await crypto.subtle.exportKey("spki", key);
+    return arrayBufferToBase64(rawKey);
+}
+
+// Imports a Base64 string back into a usable Public CryptoKey.
+export async function importPublicKeyFromBase64(keyB64: string): Promise<CryptoKey> {
+    const rawKey = base64ToArrayBuffer(keyB64);
+    return crypto.subtle.importKey(
+        "spki",
+        rawKey,
+        { name: "RSA-OAEP", hash: "SHA-256" },
+        true,
+        ["wrapKey"]
+    );
+}
+
+// --- Data Encryption / Decryption (for messages) ---
+
+// Encrypts a string of data with a given AES-GCM CryptoKey.
 export async function encryptMessage(text: string, key: CryptoKey): Promise<{ iv: string; encrypted: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV is standard for AES-GCM
   const encodedText = new TextEncoder().encode(text);
@@ -86,7 +122,7 @@ export async function encryptMessage(text: string, key: CryptoKey): Promise<{ iv
   };
 }
 
-// Decrypts a string of data with a given CryptoKey.
+// Decrypts a string of data with a given AES-GCM CryptoKey.
 export async function decryptMessage(encryptedB64: string, ivB64: string, key: CryptoKey): Promise<string> {
   const ivBuffer = base64ToArrayBuffer(ivB64);
   const encryptedBuffer = base64ToArrayBuffer(encryptedB64);
