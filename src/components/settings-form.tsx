@@ -29,8 +29,8 @@ export default function SettingsForm({ user }: SettingsFormProps) {
     
     // Note: These settings are for UI demonstration.
     // A full implementation of auto-deletion requires server-side logic (e.g., Cloud Functions).
+    const [enableAutoDeleteChats, setEnableAutoDeleteChats] = useState(false);
     const [autoDeleteTime, setAutoDeleteTime] = useState("never");
-    const [deleteOnInactivity, setDeleteOnInactivity] = useState(false);
     const [accountDeletionTime, setAccountDeletionTime] = useState("never");
     const [enableAccountDeletionOnInactivity, setEnableAccountDeletionOnInactivity] = useState(false);
 
@@ -39,8 +39,8 @@ export default function SettingsForm({ user }: SettingsFormProps) {
         try {
             const userRef = doc(firestore, "users", user.uid);
             await updateDoc(userRef, {
+                'settings.enableAutoDeleteChats': enableAutoDeleteChats,
                 'settings.autoDeleteTime': autoDeleteTime,
-                'settings.deleteOnInactivity': deleteOnInactivity,
                 'settings.accountDeletionTime': accountDeletionTime,
                 'settings.enableAccountDeletionOnInactivity': enableAccountDeletionOnInactivity,
             });
@@ -70,38 +70,44 @@ export default function SettingsForm({ user }: SettingsFormProps) {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <Label htmlFor="auto-delete" className="shrink-0">
-                            Remove chats older than
-                        </Label>
-                        <Select value={autoDeleteTime} onValueChange={setAutoDeleteTime}>
-                            <SelectTrigger id="auto-delete" className="w-full sm:w-[200px]">
-                                <SelectValue placeholder="Select time" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="never">Never</SelectItem>
-                                <SelectItem value="24h">24 hours</SelectItem>
-                                <SelectItem value="48h">48 hours</SelectItem>
-                                <SelectItem value="1w">1 week</SelectItem>
-                                <SelectItem value="1m">1 month</SelectItem>
-                                <SelectItem value="3m">3 months</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
                     <div className="flex items-center justify-between">
-                        <Label htmlFor="inactivity-delete" className="flex flex-col gap-1">
-                            <span>Delete on inactivity</span>
+                        <Label htmlFor="auto-delete-switch" className="flex flex-col gap-1">
+                            <span>Enable automatic chat deletion</span>
                             <span className="font-normal text-muted-foreground text-sm">
-                                If enabled, chats will be deleted after the selected timeframe of inactivity.
+                                Automatically delete messages older than the selected timeframe.
                             </span>
                         </Label>
                         <Switch
-                            id="inactivity-delete"
-                            checked={deleteOnInactivity}
-                            onCheckedChange={setDeleteOnInactivity}
+                            id="auto-delete-switch"
+                            checked={enableAutoDeleteChats}
+                            onCheckedChange={setEnableAutoDeleteChats}
                         />
                     </div>
-                     <div className="pt-4">
+
+                    {enableAutoDeleteChats && (
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <Label htmlFor="auto-delete-time" className="shrink-0">
+                                Delete chats older than
+                            </Label>
+                            <Select value={autoDeleteTime} onValueChange={setAutoDeleteTime}>
+                                <SelectTrigger id="auto-delete-time" className="w-full sm:w-[200px]">
+                                    <SelectValue placeholder="Select time" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="never">Never</SelectItem>
+                                    <SelectItem value="24h">24 hours</SelectItem>
+                                    <SelectItem value="48h">48 hours</SelectItem>
+                                    <SelectItem value="1w">1 week</SelectItem>
+                                    <SelectItem value="1m">1 month</SelectItem>
+                                    <SelectItem value="3m">3 months</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    
+                    <Separator />
+
+                    <div>
                         <Button
                             variant="destructive"
                             onClick={() => setIsDeleteChatsOpen(true)}
@@ -109,6 +115,9 @@ export default function SettingsForm({ user }: SettingsFormProps) {
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete All Chats Now
                         </Button>
+                        <p className="text-sm text-muted-foreground mt-2">
+                            Immediately delete all of your chat history from all conversations.
+                        </p>
                     </div>
                 </CardContent>
                 <CardFooter className="border-t px-6 py-4">
