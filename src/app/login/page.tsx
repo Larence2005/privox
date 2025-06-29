@@ -2,7 +2,7 @@
 
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { MessageSquareKey } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/firebase";
@@ -53,7 +53,7 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-background p-8">
       <div className="flex flex-col items-center justify-center text-center max-w-md w-full">
-        <MessageSquareKey className="h-20 w-20 text-primary mb-6" />
+        <MessageSquare className="h-20 w-20 text-primary mb-6" />
         <h1 className="text-4xl font-bold font-headline text-foreground mb-2">
           Welcome to CipherChat
         </h1>
