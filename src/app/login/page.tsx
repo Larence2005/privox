@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -39,6 +40,7 @@ const signInSchema = z.object({
 });
 
 const isUsingMockKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'mock-api-key';
+const isMissingDbUrl = !process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
 export default function LoginPage() {
     const router = useRouter();
@@ -174,6 +176,27 @@ export default function LoginPage() {
                 <Skeleton className="h-12 w-56" />
             </div>
         );
+    }
+
+    if (isMissingDbUrl) {
+        return (
+            <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-8">
+                <Alert variant="destructive" className="max-w-lg">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Configuration Error</AlertTitle>
+                  <AlertDescription>
+                    <p className="mb-2">Your Firebase Realtime Database URL is missing from your configuration.</p>
+                    <p>You can find this URL at the top of the **Data** tab in the Realtime Database section of the Firebase Console.</p>
+                    <p className="font-semibold mt-2">To fix this:</p>
+                    <ol className="list-decimal list-inside space-y-1 mt-1">
+                        <li>Create a file named <strong>.env.local</strong> in the root of your project if it doesn't exist.</li>
+                        <li>Add your Database URL to it: <br /><code className="bg-muted px-1 rounded">NEXT_PUBLIC_FIREBASE_DATABASE_URL=your_url_here</code></li>
+                        <li><strong>Important:</strong> Stop and restart the development server.</li>
+                    </ol>
+                  </AlertDescription>
+                </Alert>
+            </div>
+        )
     }
 
     if (isUsingMockKey) {
