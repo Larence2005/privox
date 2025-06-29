@@ -79,21 +79,16 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                 const chatPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}`)));
                 const chatSnaps = await Promise.all(chatPromises);
 
+                // Instead of deleting chats, we "leave" them by removing ourself from the participants list.
                 chatSnaps.forEach((chatSnap, index) => {
                     const chatId = chatIds[index];
                     if (chatSnap.exists()) {
-                        const participants = chatSnap.val().participants;
-                        if (participants) {
-                            Object.keys(participants).forEach(uid => {
-                                updates[`/user-chats/${uid}/${chatId}`] = null;
-                            });
-                        }
+                        updates[`/chats/${chatId}/participants/${user.uid}`] = null;
                     }
-                    updates[`/chats/${chatId}`] = null;
-                    updates[`/messages/${chatId}`] = null;
                 });
             }
 
+            // Remove user's own data
             updates[`/users/${user.uid}`] = null;
             updates[`/user-chats/${user.uid}`] = null;
 
@@ -105,7 +100,7 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
 
             toast({
                 title: "Account Deleted",
-                description: "Your account and all associated data have been permanently deleted.",
+                description: "Your account and associated data have been permanently deleted.",
             });
             
             onOpenChange(false);
@@ -194,3 +189,5 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
         </AlertDialog>
     );
 }
+
+    

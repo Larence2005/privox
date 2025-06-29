@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   update,
   off,
+  set,
 } from "firebase/database";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -36,6 +37,8 @@ import ChatInterface from "@/components/chat-interface";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 
 interface UserData {
   uid: string;
@@ -117,8 +120,13 @@ function MainLayout({ user }: { user: User }) {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const processChatData = useCallback(async (chatId: string, chatData: any) => {
+  const processChatData = useCallback(async (chatId: string, chatData: any): Promise<ChatWithParticipants | null> => {
+      if (!chatData || !chatData.participants) return null;
+
       const participantUids = Object.keys(chatData.participants);
+      // A user might "leave" a chat, so we need to ensure the current user is still a participant
+      if (!participantUids.includes(user.uid)) return null;
+
       const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
       const participantSnaps = await Promise.all(participantPromises);
       const participantsData = participantSnaps
@@ -130,7 +138,7 @@ function MainLayout({ user }: { user: User }) {
           ...chatData,
           participantsData,
       };
-  }, []);
+  }, [user.uid]);
 
   useEffect(() => {
       setIsLoading(true);
@@ -170,12 +178,17 @@ function MainLayout({ user }: { user: User }) {
               const chatListener = onValue(chatRef, async (chatSnap) => {
                   if (!chatSnap.exists()) {
                       setChats(prev => prev.filter(c => c.id !== chatId));
+                      // Also remove from the user's list if it's a dangling reference
+                      update(ref(database), {[`/user-chats/${user.uid}/${chatId}`]: null});
                       return;
                   };
 
                   const newChatData = await processChatData(chatId, chatSnap.val());
 
                   setChats(prevChats => {
+                      if (!newChatData) { // Handle case where user was removed from chat
+                          return prevChats.filter(c => c.id !== chatId);
+                      }
                       const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
                       let newChats = [...prevChats];
                       if (existingChatIndex !== -1) {
@@ -192,6 +205,7 @@ function MainLayout({ user }: { user: User }) {
                   }
               }, (error) => {
                   console.error(`Error fetching chat ${chatId}:`, error);
+                  setChats(prev => prev.filter(c => c.id !== chatId));
               });
               
               chatListeners[chatId] = () => off(chatRef, 'value', chatListener);
@@ -221,28 +235,39 @@ function MainLayout({ user }: { user: User }) {
     });
   };
 
-  const handleCreateNewChat = async () => {
+ const handleCreateNewChat = async () => {
     const trimmedId = newChatUserId.trim();
-    if (trimmedId === "") return;
+    if (!trimmedId) return;
+
     if (trimmedId === user.uid) {
         toast({ variant: "destructive", title: "Error", description: "You cannot start a chat with yourself." });
         return;
     }
 
     setIsCreatingChat(true);
-    try {
-        const otherUserRef = ref(database, `users/${trimmedId}`);
-        const otherUserSnap = await get(otherUserRef);
 
+    try {
+        const otherUserSnap = await get(ref(database, `users/${trimmedId}`));
         if (!otherUserSnap.exists()) {
             toast({ variant: "destructive", title: "Error", description: "User not found." });
-            setIsCreatingChat(false);
             return;
         }
 
-        // Note: For simplicity, this doesn't check for existing chats between users,
-        // which could lead to duplicates. A robust implementation would check for this.
-        
+        // Check if a chat with this user already exists to avoid duplicates.
+        const existingChat = chats.find(chat => 
+            Object.keys(chat.participants).length === 2 &&
+            chat.participants[user.uid] &&
+            chat.participants[trimmedId]
+        );
+
+        if (existingChat) {
+            toast({ title: "Chat already exists", description: "You are already chatting with this user." });
+            setSelectedChat(existingChat);
+            setIsNewChatDialogOpen(false);
+            setNewChatUserId("");
+            return;
+        }
+
         const newChatRef = push(ref(database, 'chats'));
         const newChatId = newChatRef.key;
         if (!newChatId) throw new Error("Could not generate new chat ID");
@@ -251,9 +276,13 @@ function MainLayout({ user }: { user: User }) {
         const chatData = {
             participants,
             timestamp: serverTimestamp(),
-            lastMessage: "Chat created"
+            lastMessage: "Chat created",
+            createdBy: user.uid,
         };
         
+        // This is a multi-path update that writes the chat and updates both users' chat lists.
+        // It relies on security rules allowing a user to write to another user's list
+        // ONLY when creating a chat where they are a participant.
         const updates: { [key: string]: any } = {};
         updates[`/chats/${newChatId}`] = chatData;
         updates[`/user-chats/${user.uid}/${newChatId}`] = true;
@@ -264,9 +293,13 @@ function MainLayout({ user }: { user: User }) {
         setIsNewChatDialogOpen(false);
         setNewChatUserId("");
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error creating chat:", error);
-        toast({ variant: "destructive", title: "Error", description: "Failed to create chat." });
+        toast({ 
+            variant: "destructive", 
+            title: "Error creating chat",
+            description: error.message || "An unexpected error occurred."
+        });
     } finally {
         setIsCreatingChat(false);
     }
@@ -408,3 +441,5 @@ function MainLayout({ user }: { user: User }) {
     </div>
   );
 }
+
+    

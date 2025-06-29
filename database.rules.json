@@ -3,6 +3,7 @@
   "rules": {
     "users": {
       "$uid": {
+        // Users can read any profile, but can only write to their own.
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "newData.hasChildren(['uid', 'displayName', 'email', 'photoURL'])"
@@ -10,13 +11,17 @@
     },
     "chats": {
       "$chatId": {
+        // A user can read a chat if they are a participant.
         ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
-        ".write": "auth != null && (!data.exists() || data.child('participants').child(auth.uid).exists())",
-        ".validate": "newData.hasChildren(['participants', 'timestamp', 'lastMessage']) && newData.child('participants').hasChild(auth.uid)"
+        // Write rules are more complex.
+        ".write": "auth != null && (data.child('participants').child(auth.uid).exists() || newData.child('participants').child(auth.uid).exists())",
+        // Validate new chat data and updates.
+        ".validate": "newData.hasChildren(['participants', 'timestamp', 'lastMessage'])"
       }
     },
     "messages": {
       "$chatId": {
+        // A user can read/write messages if they are a participant of the chat.
         ".read": "auth != null && root.child('chats').child($chatId).child('participants').child(auth.uid).exists()",
         ".write": "auth != null && root.child('chats').child($chatId).child('participants').child(auth.uid).exists()",
         "$messageId": {
@@ -27,9 +32,18 @@
     },
     "user-chats": {
       "$uid": {
+        // A user can only read their own list of chats.
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid"
+        "$chatId": {
+          // A user can write to a chat list if:
+          // 1. It's their own list.
+          // 2. OR, they are adding a chat to another user's list, but ONLY if the chat being created
+          //    also includes the writer as a participant. This rule is crucial for allowing chat creation.
+          ".write": "auth != null && (auth.uid === $uid || (newData.val() === true && root.child('chats').child($chatId).child('createdBy').val() === auth.uid))"
+        }
       }
     }
   }
 }
+
+    

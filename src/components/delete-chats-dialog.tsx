@@ -43,33 +43,25 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
                 return;
             }
 
-            const updates: { [key: string]: null } = {};
             const chatIds = Object.keys(userChatsSnap.val());
-
-            const chatPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}`)));
-            const chatSnaps = await Promise.all(chatPromises);
-
-            chatSnaps.forEach((chatSnap, index) => {
-                const chatId = chatIds[index];
-                if (chatSnap.exists()) {
-                    const participants = chatSnap.val().participants;
-                    if (participants) {
-                        Object.keys(participants).forEach(uid => {
-                            updates[`/user-chats/${uid}/${chatId}`] = null;
-                        });
-                    }
-                }
-                updates[`/chats/${chatId}`] = null;
-                updates[`/messages/${chatId}`] = null;
+            
+            // This multi-path update will "leave" all chats.
+            // It is a valid operation because we are only writing to paths we have access to:
+            // 1. Our own /user-chats/{uid} path.
+            // 2. The /chats/{chatId}/participants/{uid} path, which is allowed because we are a participant.
+            const updates: { [key: string]: null } = {};
+            chatIds.forEach(chatId => {
+                updates[`/user-chats/${user.uid}/${chatId}`] = null;
+                updates[`/chats/${chatId}/participants/${user.uid}`] = null;
             });
-
+            
             if (Object.keys(updates).length > 0) {
               await update(ref(database), updates);
             }
 
             toast({
                 title: "Success",
-                description: "All your chats have been deleted.",
+                description: "You have left all your chats.",
             });
             
         } catch (error) {
@@ -91,10 +83,11 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
                 <AlertDialogHeader>
                     <AlertDialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="text-destructive" />
-                        Delete All Chats?
+                        Leave All Chats?
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                        This will permanently delete all your conversations. This action cannot be undone.
+                        This will remove you from all of your conversations. This action cannot be undone.
+                        Other participants will remain in the chats.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -105,10 +98,12 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
                         disabled={isDeleting}
                     >
                         {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Yes, Delete All Chats
+                        Yes, Leave All Chats
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
     );
 }
+
+    
