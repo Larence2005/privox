@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { ref, get, update } from "firebase/database";
+import { collection, query, where, getDocs, writeBatch, doc, deleteDoc } from "firebase/firestore";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { database, auth } from "@/lib/firebase";
+import { firestore, auth } from "@/lib/firebase";
 import { Label } from "@/components/ui/label";
 
 interface DeleteAccountDialogProps {
@@ -28,6 +28,22 @@ interface DeleteAccountDialogProps {
     onOpenChange: (isOpen: boolean) => void;
     user: User;
 }
+
+// Helper function to delete all documents in a collection or subcollection
+async function deleteCollection(collectionPath: string) {
+    const collectionRef = collection(firestore, collectionPath);
+    const q = query(collectionRef);
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) return;
+
+    const batch = writeBatch(firestore);
+    querySnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+    await batch.commit();
+}
+
 
 export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: DeleteAccountDialogProps) {
     const router = useRouter();
@@ -65,33 +81,32 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                 return;
             }
 
+            // Re-authenticate the user for this sensitive operation
             const credential = EmailAuthProvider.credential(currentUser.email, password);
             await reauthenticateWithCredential(currentUser, credential);
 
-            const userChatsRef = ref(database, `userChats/${user.uid}`);
-            const userChatsSnap = await get(userChatsRef);
-            const updates: { [key: string]: null } = {};
+            // Find all chats the user is a part of
+            const chatsQuery = query(collection(firestore, 'chats'), where('participantUids', 'array-contains', user.uid));
+            const chatsSnapshot = await getDocs(chatsQuery);
 
-            if (userChatsSnap.exists()) {
-                const chatIds = Object.keys(userChatsSnap.val());
-                const chatParticipantPromises = chatIds.map(chatId => get(ref(database, `chats/${chatId}/participantUids`)));
-                const chatParticipantSnaps = await Promise.all(chatParticipantPromises);
-
-                chatIds.forEach((chatId, index) => {
-                    updates[`/chats/${chatId}`] = null;
-                    updates[`/messages/${chatId}`] = null;
-                    const participantsObj = chatParticipantSnaps[index].val();
-                    if (participantsObj) {
-                        Object.keys(participantsObj).forEach(p_uid => {
-                            updates[`/userChats/${p_uid}/${chatId}`] = null;
-                        });
-                    }
-                });
+            // Use a batch to delete all associated data
+            const batch = writeBatch(firestore);
+            
+            for (const chatDoc of chatsSnapshot.docs) {
+                // Delete all messages in the subcollection
+                await deleteCollection(`chats/${chatDoc.id}/messages`);
+                // Delete the chat document itself
+                batch.delete(chatDoc.ref);
             }
 
-            updates[`/users/${user.uid}`] = null;
-            await update(ref(database), updates);
+            // Delete the user's document
+            const userDocRef = doc(firestore, 'users', user.uid);
+            batch.delete(userDocRef);
+            
+            // Commit all batched writes
+            await batch.commit();
 
+            // Finally, delete the user from Firebase Authentication
             await deleteUser(currentUser);
 
             toast({

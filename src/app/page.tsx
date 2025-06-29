@@ -4,18 +4,24 @@
 import { useState, useEffect } from "react";
 import type { User } from "firebase/auth";
 import {
-  ref,
-  onValue,
-  get,
-  update,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  getDoc,
+  setDoc,
   serverTimestamp,
-} from "firebase/database";
+  orderBy,
+  getDocs,
+  Timestamp,
+} from "firebase/firestore";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { useAuth } from "@/hooks/use-auth";
-import { database, auth } from "@/lib/firebase";
+import { firestore, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,15 +44,14 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 interface UserData {
   uid: string;
   displayName: string | null;
-  email: string | null;
   photoURL: string | null;
 }
 
 interface Chat {
   id: string;
-  participantUids: { [key: string]: boolean };
+  participantUids: string[];
   lastMessage?: string;
-  timestamp: number;
+  timestamp: Timestamp;
 }
 
 export interface ChatWithParticipants extends Chat {
@@ -117,44 +122,29 @@ function MainLayout({ user }: { user: User }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const userChatsRef = ref(database, 'userChats/' + user.uid);
+    const chatsRef = collection(firestore, 'chats');
+    const q = query(chatsRef, where("participantUids", "array-contains", user.uid), orderBy("timestamp", "desc"));
 
-    const unsubscribe = onValue(userChatsRef, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
         setIsLoading(true);
-        if (!snapshot.exists()) {
-            setChats([]);
-            setIsLoading(false);
-            return;
-        }
-
-        const chatIds = Object.keys(snapshot.val());
-        
         try {
             const chatsData = await Promise.all(
-                chatIds.map(async (chatId) => {
-                    const chatSnap = await get(ref(database, `chats/${chatId}`));
-                    if (!chatSnap.exists()) return null;
-
-                    const chatData = chatSnap.val() as Omit<Chat, 'id'> & { participantUids: { [key: string]: boolean } };
+                querySnapshot.docs.map(async (docSnap) => {
+                    const chatData = { id: docSnap.id, ...docSnap.data() } as Chat;
                     
-                    const participantUids = Object.keys(chatData.participantUids);
-                    const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
+                    const participantPromises = chatData.participantUids.map(uid => getDoc(doc(firestore, `users/${uid}`)));
                     const participantSnaps = await Promise.all(participantPromises);
                     const participants = participantSnaps
                         .filter(pSnap => pSnap.exists())
-                        .map(pSnap => pSnap.val() as UserData);
+                        .map(pSnap => pSnap.data() as UserData);
 
                     return {
-                        id: chatId,
                         ...chatData,
                         participants,
                     };
                 })
             );
-
-            const validChats = chatsData.filter(c => c !== null) as ChatWithParticipants[];
-            validChats.sort((a, b) => b.timestamp - a.timestamp);
-            setChats(validChats);
+            setChats(chatsData);
 
         } catch (error) {
             console.error("Error fetching chats data:", error);
@@ -162,6 +152,10 @@ function MainLayout({ user }: { user: User }) {
         } finally {
             setIsLoading(false);
         }
+    }, (error) => {
+        console.error("Chats listener error:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to listen for chat updates.' });
+        setIsLoading(false);
     });
 
     return () => unsubscribe();
@@ -184,45 +178,36 @@ function MainLayout({ user }: { user: User }) {
     const trimmedId = newChatUserId.trim();
     if (trimmedId === "") return;
     if (trimmedId === user.uid) {
-        toast({ variant: "destructive", title: "You cannot start a chat with yourself." });
+        toast({ variant: "destructive", title: "Error", description: "You cannot start a chat with yourself." });
         return;
     }
 
     setIsCreatingChat(true);
     try {
-        const otherUserRef = ref(database, "users/" + trimmedId);
-        const otherUserSnap = await get(otherUserRef);
+        const otherUserRef = doc(firestore, "users", trimmedId);
+        const otherUserSnap = await getDoc(otherUserRef);
 
         if (!otherUserSnap.exists()) {
-            toast({ variant: "destructive", title: "User not found." });
+            toast({ variant: "destructive", title: "Error", description: "User not found." });
             setIsCreatingChat(false);
             return;
         }
 
         const chatId = [user.uid, trimmedId].sort().join('_');
-        const chatRef = ref(database, "chats/" + chatId);
-        const chatSnap = await get(chatRef);
+        const chatRef = doc(firestore, "chats", chatId);
+        const chatSnap = await getDoc(chatRef);
 
         if (chatSnap.exists()) {
             const existingChat = chats.find(c => c.id === chatId);
             if(existingChat) setSelectedChat(existingChat);
         } else {
-            const participants = {
-                [user.uid]: true,
-                [trimmedId]: true
-            };
             const chatData = {
-                participantUids: participants,
+                participantUids: [user.uid, trimmedId],
                 timestamp: serverTimestamp(),
                 lastMessage: "Chat created"
             };
-
-            const updates: { [key: string]: any } = {};
-            updates[`/chats/${chatId}`] = chatData;
-            updates[`/userChats/${user.uid}/${chatId}`] = true;
-            updates[`/userChats/${trimmedId}/${chatId}`] = true;
-
-            await update(ref(database), updates);
+            await setDoc(chatRef, chatData);
+            // The onSnapshot listener will automatically pick up the new chat.
         }
         
         setIsNewChatDialogOpen(false);
@@ -230,7 +215,7 @@ function MainLayout({ user }: { user: User }) {
 
     } catch (error) {
         console.error("Error creating chat:", error);
-        toast({ variant: "destructive", title: "Failed to create chat." });
+        toast({ variant: "destructive", title: "Error", description: "Failed to create chat." });
     } finally {
         setIsCreatingChat(false);
     }
@@ -300,7 +285,7 @@ function MainLayout({ user }: { user: User }) {
                     </div>
                     {chat.timestamp && (
                          <div className="text-xs text-muted-foreground self-start">
-                            {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(chat.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                     )}
                 </button>
