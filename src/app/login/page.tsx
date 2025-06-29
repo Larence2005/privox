@@ -38,7 +38,7 @@ export default function LoginPage() {
         toast({
             variant: "destructive",
             title: "Firebase Not Configured",
-            description: "Google Sign-In requires valid Firebase credentials.",
+            description: "Google Sign-In requires a valid Firebase configuration. Please check your .env.local file.",
         });
         return;
     }
@@ -57,10 +57,14 @@ export default function LoginPage() {
       router.push("/");
     } catch (error) {
       console.error("Error signing in with Google: ", error);
+      let description = (error as Error).message;
+      if ((error as any).code === 'auth/invalid-api-key') {
+          description = "Your Firebase API key is not valid. Please ensure you have the correct NEXT_PUBLIC_FIREBASE_API_KEY in your .env.local file."
+      }
       toast({
         variant: "destructive",
         title: "Sign-in Failed",
-        description: (error as Error).message,
+        description: description,
       });
     }
   };
@@ -70,7 +74,7 @@ export default function LoginPage() {
         toast({
             variant: "destructive",
             title: "Firebase Not Configured",
-            description: "Anonymous Sign-In requires valid Firebase credentials.",
+            description: "Anonymous Sign-In requires a valid Firebase configuration. Please check your .env.local file.",
         });
         return;
     }
@@ -87,10 +91,14 @@ export default function LoginPage() {
       router.push("/");
     } catch (error) {
         console.error("Error signing in anonymously: ", error);
+        let description = (error as Error).message;
+        if ((error as any).code === 'auth/invalid-api-key' || (error as any).code === 'auth/api-key-not-valid.-please-pass-a-valid-api-key.') {
+            description = "Your Firebase API key is not valid. Please ensure you have the correct NEXT_PUBLIC_FIREBASE_API_KEY in your .env.local file."
+        }
         toast({
           variant: "destructive",
           title: "Sign-in Failed",
-          description: (error as Error).message,
+          description: description,
         });
     }
   };
