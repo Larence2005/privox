@@ -1,0 +1,2 @@
+// This file is no longer used since the project has been migrated to Firebase Realtime Database.
+// The security rules are now defined in database.rules.json.
