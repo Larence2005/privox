@@ -58,59 +58,9 @@ export interface ChatWithParticipants extends Chat {
 export default function Home() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
-    }
-  }, [user, authLoading, router]);
-
-  if (authLoading || !user) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <div className="flex w-full h-full">
-            <aside className="h-full flex-col border-r hidden md:flex w-80 lg:w-96 p-2">
-                <div className="flex items-center gap-3 p-2">
-                    <Skeleton className="h-10 w-10 rounded-full" />
-                    <div className="flex-1 space-y-2">
-                        <Skeleton className="h-4 w-32" />
-                    </div>
-                </div>
-                <div className="p-2 space-y-2">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                </div>
-                <Separator className="my-2"/>
-                <div className="flex-1 p-2 space-y-1">
-                    {[...Array(5)].map((_, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2 rounded-md w-full">
-                             <Skeleton className="h-10 w-10 rounded-full" />
-                             <div className="flex-1 space-y-2">
-                                <Skeleton className="h-4 w-24" />
-                                <Skeleton className="h-3 w-40" />
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </aside>
-            <main className="flex-1 flex-col flex items-center justify-center">
-                <Users className="h-16 w-16 mb-4 text-muted-foreground animate-pulse" />
-                <h2 className="text-2xl font-semibold text-muted-foreground">Loading Your Chats...</h2>
-            </main>
-        </div>
-      </div>
-    );
-  }
-
-  return <MainLayout user={user} />;
-}
-
-
-function MainLayout({ user }: { user: User }) {
-  const router = useRouter();
   const { toast } = useToast();
   const isMobile = useIsMobile();
-
+  
   const [chats, setChats] = useState<ChatWithParticipants[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatWithParticipants | null>(null);
   const [isNewChatDialogOpen, setIsNewChatDialogOpen] = useState(false);
@@ -118,8 +68,14 @@ function MainLayout({ user }: { user: User }) {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
   const processChatData = useCallback(async (chatId: string, chatData: any): Promise<ChatWithParticipants | null> => {
-      if (!chatData || !chatData.participants) return null;
+      if (!user || !chatData || !chatData.participants) return null;
 
       const participantUids = Object.keys(chatData.participants);
       if (!participantUids.includes(user.uid)) return null;
@@ -135,11 +91,12 @@ function MainLayout({ user }: { user: User }) {
           ...chatData,
           participantsData,
       };
-  }, [user.uid]);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
+
     const invitesRef = ref(database, `invites/${user.uid}`);
-    
     const listener = onValue(invitesRef, (snapshot) => {
         if (!snapshot.exists()) return;
 
@@ -152,7 +109,6 @@ function MainLayout({ user }: { user: User }) {
                 const updates: { [key: string]: any } = {};
                 updates[`/user-chats/${user.uid}/${chatId}`] = true;
                 updates[`/invites/${user.uid}/${chatId}`] = null;
-
                 await update(ref(database), updates);
             } else {
                 await set(ref(database, `/invites/${user.uid}/${chatId}`), null);
@@ -161,9 +117,11 @@ function MainLayout({ user }: { user: User }) {
     });
 
     return () => off(invitesRef, 'value', listener);
-  }, [user.uid]);
+  }, [user]);
 
   useEffect(() => {
+      if (!user) return;
+
       setIsLoading(true);
       const userChatsRef = ref(database, `user-chats/${user.uid}`);
       const chatListeners: { [key: string]: () => void } = {};
@@ -235,7 +193,7 @@ function MainLayout({ user }: { user: User }) {
           off(userChatsRef, 'value', userChatsListener);
           Object.values(chatListeners).forEach(cleanup => cleanup());
       };
-  }, [user.uid, toast, processChatData]);
+  }, [user, toast, processChatData]);
 
   const handleSignOut = async () => {
     await auth.signOut();
@@ -243,6 +201,7 @@ function MainLayout({ user }: { user: User }) {
   };
 
   const handleCopyUserId = () => {
+    if(!user) return;
     navigator.clipboard.writeText(user.uid);
     toast({
       title: "User ID Copied!",
@@ -250,7 +209,8 @@ function MainLayout({ user }: { user: User }) {
     });
   };
 
- const handleCreateNewChat = async () => {
+  const handleCreateNewChat = async () => {
+    if(!user) return;
     const trimmedId = newChatUserId.trim();
     if (!trimmedId) return;
 
@@ -322,6 +282,43 @@ function MainLayout({ user }: { user: User }) {
         setIsCreatingChat(false);
     }
   };
+
+  if (authLoading || !user) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="flex w-full h-full">
+            <aside className="h-full flex-col border-r hidden md:flex w-80 lg:w-96 p-2">
+                <div className="flex items-center gap-3 p-2">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-32" />
+                    </div>
+                </div>
+                <div className="p-2 space-y-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                </div>
+                <Separator className="my-2"/>
+                <div className="flex-1 p-2 space-y-1">
+                    {[...Array(5)].map((_, i) => (
+                        <div key={i} className="flex items-center gap-3 p-2 rounded-md w-full">
+                             <Skeleton className="h-10 w-10 rounded-full" />
+                             <div className="flex-1 space-y-2">
+                                <Skeleton className="h-4 w-24" />
+                                <Skeleton className="h-3 w-40" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </aside>
+            <main className="flex-1 flex-col flex items-center justify-center">
+                <Users className="h-16 w-16 mb-4 text-muted-foreground animate-pulse" />
+                <h2 className="text-2xl font-semibold text-muted-foreground">Loading Your Chats...</h2>
+            </main>
+        </div>
+      </div>
+    );
+  }
   
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card text-card-foreground">
