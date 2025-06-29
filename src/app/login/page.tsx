@@ -1,4 +1,3 @@
-
 "use client";
 
 import { GoogleAuthProvider, signInWithPopup, signInAnonymously } from "firebase/auth";
@@ -12,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
 
 function GoogleIcon(props: React.SVGProps<SVGSVGElement>) {
     return (
@@ -25,6 +25,7 @@ function GoogleIcon(props: React.SVGProps<SVGSVGElement>) {
 export default function LoginPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!loading && user) {
@@ -33,6 +34,15 @@ export default function LoginPage() {
   }, [user, loading, router]);
 
   const handleGoogleSignIn = async () => {
+    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'mock-api-key') {
+        toast({
+            variant: "destructive",
+            title: "Firebase Not Configured",
+            description: "Google Sign-In requires valid Firebase credentials.",
+        });
+        return;
+    }
+
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
@@ -47,11 +57,23 @@ export default function LoginPage() {
       router.push("/");
     } catch (error) {
       console.error("Error signing in with Google: ", error);
-      // You might want to show a toast here
+      toast({
+        variant: "destructive",
+        title: "Sign-in Failed",
+        description: (error as Error).message,
+      });
     }
   };
 
   const handleAnonymousSignIn = async () => {
+    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'mock-api-key') {
+        toast({
+            variant: "destructive",
+            title: "Firebase Not Configured",
+            description: "Anonymous Sign-In requires valid Firebase credentials.",
+        });
+        return;
+    }
     try {
       const result = await signInAnonymously(auth);
       const user = result.user;
@@ -65,7 +87,11 @@ export default function LoginPage() {
       router.push("/");
     } catch (error) {
         console.error("Error signing in anonymously: ", error);
-        // You might want to show a toast here
+        toast({
+          variant: "destructive",
+          title: "Sign-in Failed",
+          description: (error as Error).message,
+        });
     }
   };
 
