@@ -8,7 +8,7 @@ import {
     updateProfile
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { MessageSquare, User as UserIcon, Mail, Lock, Loader2, AlertCircle } from "lucide-react";
+import { MessageSquare, User as UserIcon, Mail, Lock, Loader2 } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,7 +24,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const signUpSchema = z.object({
     displayName: z.string().min(3, { message: "Display name must be at least 3 characters." }),
@@ -42,24 +41,6 @@ export default function LoginPage() {
     const { user, loading: authLoading } = useAuth();
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
-    const [configStatus, setConfigStatus] = useState<'checking' | 'valid' | 'invalid'>('checking');
-
-    useEffect(() => {
-      // This check runs only on the client-side to ensure env vars are available.
-      // We use a short timeout to prevent a layout flash on initial load.
-      const timer = setTimeout(() => {
-        if (
-            process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-            process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== 'mock-api-key'
-        ) {
-            setConfigStatus('valid');
-        } else {
-            setConfigStatus('invalid');
-        }
-      }, 50);
-
-      return () => clearTimeout(timer);
-    }, []);
 
     const signInForm = useForm<z.infer<typeof signInSchema>>({
         resolver: zodResolver(signInSchema),
@@ -78,17 +59,9 @@ export default function LoginPage() {
         }
     }, [user, authLoading, router]);
 
-    const showConfigErrorToast = () => {
-        toast({
-            variant: "destructive",
-            title: "Firebase Not Configured",
-            description: "Please follow the setup instructions before trying to sign in.",
-        });
-    }
-
     const handleFirebaseError = (error: unknown) => {
         let description = (error as Error).message;
-        if ((error as any).code?.includes('auth/invalid-api-key')) {
+        if ((error as any).code?.includes('invalid-api-key')) {
            description = "Your Firebase API key is not valid. Please ensure you have the correct key in your .env.local file and have restarted the server."
         }
         toast({
@@ -99,10 +72,6 @@ export default function LoginPage() {
     }
 
     const handleSignIn = async (values: z.infer<typeof signInSchema>) => {
-        if (configStatus !== 'valid') {
-            showConfigErrorToast();
-            return;
-        }
         setIsLoading(true);
         try {
             await signInWithEmailAndPassword(auth, values.email, values.password);
@@ -116,10 +85,6 @@ export default function LoginPage() {
     };
 
     const handleSignUp = async (values: z.infer<typeof signUpSchema>) => {
-        if (configStatus !== 'valid') {
-            showConfigErrorToast();
-            return;
-        }
         setIsLoading(true);
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
@@ -146,10 +111,6 @@ export default function LoginPage() {
 
 
     const handleAnonymousSignIn = async () => {
-        if (configStatus !== 'valid') {
-            showConfigErrorToast();
-            return;
-        }
         setIsLoading(true);
         try {
             const result = await signInAnonymously(auth);
@@ -170,9 +131,7 @@ export default function LoginPage() {
         }
     };
 
-    const buttonsDisabled = isLoading || configStatus !== 'valid';
-
-    if (authLoading || user || configStatus === 'checking') {
+    if (authLoading || user) {
         return (
             <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-8">
                 <Skeleton className="h-20 w-20 rounded-full mb-6" />
@@ -185,15 +144,6 @@ export default function LoginPage() {
 
     return (
         <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-            {configStatus === 'invalid' && (
-                <Alert variant="destructive" className="mb-6 max-w-md w-full">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Firebase Not Configured</AlertTitle>
-                    <AlertDescription>
-                        It looks like the app is using mock credentials. Please create a <code>.env.local</code> file in the project's root directory, add your Firebase config (e.g. NEXT_PUBLIC_FIREBASE_API_KEY="..."), and then **restart the development server**.
-                    </AlertDescription>
-                </Alert>
-            )}
             <div className="flex flex-col items-center justify-center text-center max-w-md w-full">
                 <MessageSquare className="h-16 w-16 text-primary mb-4" />
                 <h1 className="text-4xl font-bold font-headline text-foreground mb-2">
@@ -249,7 +199,7 @@ export default function LoginPage() {
                                                 </FormItem>
                                             )}
                                         />
-                                        <Button type="submit" className="w-full" disabled={buttonsDisabled}>
+                                        <Button type="submit" className="w-full" disabled={isLoading}>
                                             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                             Sign In
                                         </Button>
@@ -315,7 +265,7 @@ export default function LoginPage() {
                                                 </FormItem>
                                             )}
                                         />
-                                        <Button type="submit" className="w-full" disabled={buttonsDisabled}>
+                                        <Button type="submit" className="w-full" disabled={isLoading}>
                                             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                             Create Account
                                         </Button>
@@ -337,8 +287,9 @@ export default function LoginPage() {
                         variant="secondary"
                         size="lg"
                         className="w-full"
-                        disabled={buttonsDisabled}
+                        disabled={isLoading}
                     >
+                        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         <UserIcon className="h-5 w-5 mr-2" />
                         Sign in as Guest
                     </Button>
