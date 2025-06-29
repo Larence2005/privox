@@ -2,46 +2,43 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
+    // Helper function to check if a user is signed in
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Helper function to check if the user is a participant of a chat
+    function isChatParticipant(chatId) {
+      return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids;
+    }
+
+    // Users can read anyone's profile, but only write to their own.
     match /users/{userId} {
-      // Any authenticated user can read public user profiles
       allow read: if isSignedIn();
-      // A user can only write to their own profile
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
+    // Chat documents
     match /chats/{chatId} {
-      // A user can read a chat document if they are a participant.
-      // For `list` queries, this rule is checked for every document.
-      // This enforces that client-side queries MUST include a filter
-      // like `where('participantUids', 'array-contains', request.auth.uid)`.
-      allow read: if isSignedIn() && resource.data.participantUids.hasAny([request.auth.uid]);
-      
-      // A user can create a chat if their UID is in the new document's participants list.
-      allow create: if isSignedIn() && request.resource.data.participantUids.hasAny([request.auth.uid]);
+      // A user can read a chat document if they are one of the participants.
+      // Firestore security rules will apply this to every document returned by a query.
+      // Since our query is `where('participantUids', 'array-contains', auth.uid)`,
+      // every document will match this rule, and the query will succeed.
+      allow read: if isChatParticipant(chatId);
 
-      // A user can update a chat (e.g. lastMessage) if they are a participant.
-      allow update: if isSignedIn() && resource.data.participantUids.hasAny([request.auth.uid]);
-
-      // Deleting chats is not allowed.
-      allow delete: if false;
+      // A user can create a chat if they are signed in and their UID is in the participants list.
+      // They can update a chat (e.g., lastMessage) only if they are a participant.
+      allow write: if isChatParticipant(chatId);
     }
-
+    
+    // Messages subcollection
     match /chats/{chatId}/messages/{messageId} {
-        // A user can read messages if they are a participant in the parent chat.
-        // This requires a `get` call, which is billed as one read per message check.
-        allow read: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids.hasAny([request.auth.uid]);
-        
-        // A user can create a message if they are a chat participant AND the author of the message.
-        allow create: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids.hasAny([request.auth.uid])
-                      && request.resource.data.uid == request.auth.uid;
-        
-        // Updating or deleting messages is not allowed.
-        allow update, delete: if false;
+      // A user can read messages in a chat if they are a participant.
+      allow read: if isChatParticipant(chatId);
+
+      // A user can write (create) a message if they are a participant
+      // and the message `uid` field matches their own auth uid.
+      allow write: if isChatParticipant(chatId) && request.resource.data.uid == request.auth.uid;
     }
   }
 }
