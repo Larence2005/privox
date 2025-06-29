@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { User } from "firebase/auth";
 import { ref, update } from "firebase/database";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +62,26 @@ export default function SettingsForm({ user }: SettingsFormProps) {
     
     return (
         <div className="max-w-2xl mx-auto space-y-8">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Your Encryption Keys</CardTitle>
+                    <CardDescription>
+                        Your private key is generated and stored securely only in this browser's local storage. It never leaves your device.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex items-start gap-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-6 w-6 shrink-0 text-amber-500" />
+                        <div>
+                            <h4 className="font-semibold">Important Warning</h4>
+                            <p className="text-sm">
+                                Because your key is stored locally, clearing your browser's cache or site data will permanently delete your private key. You will lose the ability to decrypt your past messages. This action cannot be undone.
+                            </p>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
             <Card>
                 <CardHeader>
                     <CardTitle>Chat Management</CardTitle>
