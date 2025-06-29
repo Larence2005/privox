@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import type { User } from "firebase/auth";
-import { ref, get, update } from "firebase/database";
+import { ref, get, update, query, orderByChild, equalTo } from "firebase/database";
 import { Loader2, AlertTriangle } from "lucide-react";
 
 import {
@@ -33,8 +33,9 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
         setIsDeleting(true);
 
         try {
-            const userChatsRef = ref(database, `userChats/${user.uid}`);
-            const userChatsSnap = await get(userChatsRef);
+            const chatsRef = ref(database, 'chats');
+            const userChatsQuery = query(chatsRef, orderByChild(`participants/${user.uid}`), equalTo(true));
+            const userChatsSnap = await get(userChatsQuery);
             
             if (!userChatsSnap.exists()) {
                 toast({ title: "No chats to delete." });
@@ -43,17 +44,10 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
                 return;
             }
 
-            const chatIds = Object.keys(userChatsSnap.val());
             const updates: { [key: string]: null } = {};
+            const chatIds = Object.keys(userChatsSnap.val());
 
             for (const chatId of chatIds) {
-                const chatSnap = await get(ref(database, `chats/${chatId}`));
-                if (chatSnap.exists()) {
-                    const participants = Object.keys(chatSnap.val().participants);
-                    for (const participantId of participants) {
-                        updates[`/userChats/${participantId}/${chatId}`] = null;
-                    }
-                }
                 updates[`/chats/${chatId}`] = null;
                 updates[`/messages/${chatId}`] = null;
             }

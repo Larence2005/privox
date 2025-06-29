@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { ref, get, update } from "firebase/database";
+import { ref, get, update, query, orderByChild, equalTo } from "firebase/database";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -68,29 +68,20 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
             const credential = EmailAuthProvider.credential(currentUser.email, password);
             await reauthenticateWithCredential(currentUser, credential);
 
-            const userChatsRef = ref(database, `userChats/${user.uid}`);
-            const userChatsSnap = await get(userChatsRef);
+            const chatsRef = ref(database, 'chats');
+            const userChatsQuery = query(chatsRef, orderByChild(`participants/${user.uid}`), equalTo(true));
+            const userChatsSnap = await get(userChatsQuery);
             
             const updates: { [key: string]: null } = {};
 
             if (userChatsSnap.exists()) {
                 const chatIds = Object.keys(userChatsSnap.val());
                 for (const chatId of chatIds) {
-                    const chatSnap = await get(ref(database, `chats/${chatId}`));
-                    if (chatSnap.exists()) {
-                        const participants = Object.keys(chatSnap.val().participants);
-                        for (const participantId of participants) {
-                            if (participantId !== user.uid) {
-                                updates[`/userChats/${participantId}/${chatId}`] = null;
-                            }
-                        }
-                    }
                     updates[`/chats/${chatId}`] = null;
                     updates[`/messages/${chatId}`] = null;
                 }
             }
 
-            updates[`/userChats/${user.uid}`] = null;
             updates[`/users/${user.uid}`] = null;
 
             if (Object.keys(updates).length > 0) {

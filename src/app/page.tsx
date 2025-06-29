@@ -11,6 +11,10 @@ import {
   serverTimestamp,
   update,
   off,
+  query,
+  orderByChild,
+  equalTo,
+  set,
 } from "firebase/database";
 import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -46,6 +50,7 @@ interface UserData {
 interface Chat {
   id: string;
   participants: Record<string, boolean>;
+  membersKey: string;
   lastMessage?: string;
   timestamp: number;
 }
@@ -118,55 +123,51 @@ function MainLayout({ user }: { user: User }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const userChatsRef = ref(database, `userChats/${user.uid}`);
+    setIsLoading(true);
+    const chatsRef = ref(database, 'chats');
+    const chatsQuery = query(chatsRef, orderByChild(`participants/${user.uid}`), equalTo(true));
+    
+    const listener = onValue(chatsQuery, async (snapshot) => {
+        if (!snapshot.exists()) {
+            setChats([]);
+            setIsLoading(false);
+            return;
+        }
 
-    const listener = onValue(userChatsRef, async (snapshot) => {
-      if (!snapshot.exists()) {
-        setChats([]);
-        setIsLoading(false);
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const chatIds = Object.keys(snapshot.val());
-        
-        const chatPromises = chatIds.map(async (chatId) => {
-          const chatRef = ref(database, `chats/${chatId}`);
-          const chatSnap = await get(chatRef);
-          if (!chatSnap.exists()) return null;
+        try {
+            const chatsData = snapshot.val();
+            const chatPromises = Object.keys(chatsData).map(async (chatId) => {
+                const chatData = { id: chatId, ...chatsData[chatId] } as Chat;
+                
+                const participantUids = Object.keys(chatData.participants);
+                const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
+                const participantSnaps = await Promise.all(participantPromises);
+                const participantsData = participantSnaps
+                    .filter(pSnap => pSnap.exists())
+                    .map(pSnap => pSnap.val() as UserData);
 
-          const chatData = { id: chatId, ...chatSnap.val() } as Chat;
-          
-          const participantUids = Object.keys(chatData.participants);
-          const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
-          const participantSnaps = await Promise.all(participantPromises);
-          const participantsData = participantSnaps
-              .filter(pSnap => pSnap.exists())
-              .map(pSnap => pSnap.val() as UserData);
+                return {
+                    ...chatData,
+                    participantsData,
+                };
+            });
 
-          return {
-              ...chatData,
-              participantsData,
-          };
-        });
-
-        const chatsData = (await Promise.all(chatPromises)).filter(Boolean) as ChatWithParticipants[];
-        chatsData.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-        setChats(chatsData);
-
-      } catch (error) {
-          console.error("Error fetching chats data:", error);
-          toast({ variant: 'destructive', title: 'Error', description: 'Could not load your chats.' });
-      } finally {
-          setIsLoading(false);
-      }
+            const resolvedChats = (await Promise.all(chatPromises)).filter(Boolean) as ChatWithParticipants[];
+            resolvedChats.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+            setChats(resolvedChats);
+        } catch (error) {
+            console.error("Error processing chats data:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not process your chats.' });
+        } finally {
+            setIsLoading(false);
+        }
     }, (error) => {
         console.error("Chats listener error:", error);
         toast({ variant: 'destructive', title: 'Error', description: 'Failed to listen for chat updates.' });
         setIsLoading(false);
     });
 
-    return () => off(userChatsRef, 'value', listener);
+    return () => off(chatsQuery, 'value', listener);
   }, [user.uid, toast]);
 
   const handleSignOut = async () => {
@@ -201,20 +202,19 @@ function MainLayout({ user }: { user: User }) {
             return;
         }
 
-        const userChatsSnap = await get(ref(database, `userChats/${user.uid}`));
-        if (userChatsSnap.exists()) {
-            const userChats = userChatsSnap.val();
-            for (const chatId of Object.keys(userChats)) {
-                const chatSnap = await get(ref(database, `chats/${chatId}`));
-                if (chatSnap.exists() && chatSnap.val().participants[trimmedId]) {
-                    const existingChat = chats.find(c => c.id === chatId);
-                    if(existingChat) setSelectedChat(existingChat);
-                    setIsNewChatDialogOpen(false);
-                    setNewChatUserId("");
-                    setIsCreatingChat(false);
-                    return;
-                }
-            }
+        const membersKey = [user.uid, trimmedId].sort().join('_');
+        const chatsQuery = query(ref(database, 'chats'), orderByChild('membersKey'), equalTo(membersKey));
+        const existingChatSnap = await get(chatsQuery);
+
+        if (existingChatSnap.exists()) {
+            const existingChatId = Object.keys(existingChatSnap.val())[0];
+            const existingChat = chats.find(c => c.id === existingChatId);
+            if(existingChat) setSelectedChat(existingChat);
+            toast({ title: "Chat already exists", description: "Opening your existing conversation." });
+            setIsNewChatDialogOpen(false);
+            setNewChatUserId("");
+            setIsCreatingChat(false);
+            return;
         }
 
         const newChatRef = push(ref(database, 'chats'));
@@ -228,16 +228,12 @@ function MainLayout({ user }: { user: User }) {
 
         const chatData = {
             participants,
+            membersKey,
             timestamp: serverTimestamp(),
             lastMessage: "Chat created"
         };
         
-        const updates: { [key: string]: any } = {};
-        updates[`/chats/${newChatId}`] = chatData;
-        updates[`/userChats/${user.uid}/${newChatId}`] = true;
-        updates[`/userChats/${trimmedId}/${newChatId}`] = true;
-
-        await update(ref(database), updates);
+        await set(newChatRef, chatData);
         
         setIsNewChatDialogOpen(false);
         setNewChatUserId("");
