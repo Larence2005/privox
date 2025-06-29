@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   orderBy,
 } from "firebase/firestore";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -222,11 +222,13 @@ function MainLayout({ user }: { user: User }) {
                 <p className="text-sm text-muted-foreground truncate">{user.email}</p>
               </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <ThemeSwitcher />
-            <Button variant="destructive" size="icon" onClick={handleSignOut} aria-label="Sign out">
-                <LogOut className="h-5 w-5" />
-            </Button>
+            {!user.isAnonymous && (
+              <Button variant="ghost" size="icon" aria-label="Settings">
+                <Settings className="h-5 w-5" />
+              </Button>
+            )}
           </div>
       </header>
 
@@ -277,6 +279,13 @@ function MainLayout({ user }: { user: User }) {
             )
         })}
       </nav>
+
+      <footer className="p-4 border-t shrink-0">
+        <Button variant="destructive" onClick={handleSignOut} className="w-full">
+            <LogOut className="mr-2 h-5 w-5" />
+            Sign Out
+        </Button>
+      </footer>
     </div>
   )
 
