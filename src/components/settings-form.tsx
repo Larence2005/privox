@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import type { User } from "firebase/auth";
-import { doc, updateDoc } from "firebase/firestore";
+import { ref, update } from "firebase/database";
 import { Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { firestore } from "@/lib/firebase";
+import { database } from "@/lib/firebase";
 import DeleteAccountDialog from "./delete-account-dialog";
 import DeleteChatsDialog from "./delete-chats-dialog";
 import { Separator } from "./ui/separator";
@@ -37,12 +37,12 @@ export default function SettingsForm({ user }: SettingsFormProps) {
     const handleSavePreferences = async () => {
         setIsSaving(true);
         try {
-            const userRef = doc(firestore, "users", user.uid);
-            await updateDoc(userRef, {
-                'settings.enableAutoDeleteChats': enableAutoDeleteChats,
-                'settings.autoDeleteTime': autoDeleteTime,
-                'settings.accountDeletionTime': accountDeletionTime,
-                'settings.enableAccountDeletionOnInactivity': enableAccountDeletionOnInactivity,
+            const userSettingsRef = ref(database, `users/${user.uid}/settings`);
+            await update(userSettingsRef, {
+                enableAutoDeleteChats: enableAutoDeleteChats,
+                autoDeleteTime: autoDeleteTime,
+                accountDeletionTime: accountDeletionTime,
+                enableAccountDeletionOnInactivity: enableAccountDeletionOnInactivity,
             });
             toast({
                 title: "Preferences Saved",

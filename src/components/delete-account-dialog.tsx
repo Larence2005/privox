@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { User } from "firebase/auth";
 import { EmailAuthProvider, deleteUser, reauthenticateWithCredential } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { collection, query, where, getDocs, writeBatch, doc, deleteDoc } from "firebase/firestore";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle, Lock } from "lucide-react";
 
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { firestore, auth } from "@/lib/firebase";
+import { database, auth } from "@/lib/firebase";
 import { Label } from "@/components/ui/label";
 
 interface DeleteAccountDialogProps {
@@ -28,22 +28,6 @@ interface DeleteAccountDialogProps {
     onOpenChange: (isOpen: boolean) => void;
     user: User;
 }
-
-// Helper function to delete all documents in a collection or subcollection
-async function deleteCollection(collectionPath: string) {
-    const collectionRef = collection(firestore, collectionPath);
-    const q = query(collectionRef);
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) return;
-
-    const batch = writeBatch(firestore);
-    querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-    await batch.commit();
-}
-
 
 export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: DeleteAccountDialogProps) {
     const router = useRouter();
@@ -81,32 +65,38 @@ export default function DeleteAccountDialog({ isOpen, onOpenChange, user }: Dele
                 return;
             }
 
-            // Re-authenticate the user for this sensitive operation
             const credential = EmailAuthProvider.credential(currentUser.email, password);
             await reauthenticateWithCredential(currentUser, credential);
 
-            // Find all chats the user is a part of
-            const chatsQuery = query(collection(firestore, 'chats'), where('participantUids', 'array-contains', user.uid));
-            const chatsSnapshot = await getDocs(chatsQuery);
-
-            // Use a batch to delete all associated data
-            const batch = writeBatch(firestore);
+            const userChatsRef = ref(database, `userChats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
             
-            for (const chatDoc of chatsSnapshot.docs) {
-                // Delete all messages in the subcollection
-                await deleteCollection(`chats/${chatDoc.id}/messages`);
-                // Delete the chat document itself
-                batch.delete(chatDoc.ref);
+            const updates: { [key: string]: null } = {};
+
+            if (userChatsSnap.exists()) {
+                const chatIds = Object.keys(userChatsSnap.val());
+                for (const chatId of chatIds) {
+                    const chatSnap = await get(ref(database, `chats/${chatId}`));
+                    if (chatSnap.exists()) {
+                        const participants = Object.keys(chatSnap.val().participants);
+                        for (const participantId of participants) {
+                            if (participantId !== user.uid) {
+                                updates[`/userChats/${participantId}/${chatId}`] = null;
+                            }
+                        }
+                    }
+                    updates[`/chats/${chatId}`] = null;
+                    updates[`/messages/${chatId}`] = null;
+                }
             }
 
-            // Delete the user's document
-            const userDocRef = doc(firestore, 'users', user.uid);
-            batch.delete(userDocRef);
-            
-            // Commit all batched writes
-            await batch.commit();
+            updates[`/userChats/${user.uid}`] = null;
+            updates[`/users/${user.uid}`] = null;
 
-            // Finally, delete the user from Firebase Authentication
+            if (Object.keys(updates).length > 0) {
+                await update(ref(database), updates);
+            }
+
             await deleteUser(currentUser);
 
             toast({

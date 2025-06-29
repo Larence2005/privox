@@ -9,13 +9,13 @@ import {
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { MessageSquare, User as UserIcon, Mail, Lock, Loader2, AlertTriangle } from "lucide-react";
-import { doc, setDoc } from "firebase/firestore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { ref, set } from "firebase/database";
 
 import { Button } from "@/components/ui/button";
-import { auth, firestore } from "@/lib/firebase";
+import { auth, database } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -121,8 +121,8 @@ export default function LoginPage() {
                 photoURL: photoURL,
             });
 
-            const userRef = doc(firestore, "users", user.uid);
-            await setDoc(userRef, {
+            const userRef = ref(database, "users/" + user.uid);
+            await set(userRef, {
                 uid: user.uid,
                 displayName: values.displayName,
                 email: user.email,
@@ -149,8 +149,8 @@ export default function LoginPage() {
 
             await updateProfile(user, { displayName, photoURL });
             
-            const userRef = doc(firestore, "users", user.uid);
-            await setDoc(userRef, {
+            const userRef = ref(database, "users/" + user.uid);
+            await set(userRef, {
                 uid: user.uid,
                 displayName: displayName,
                 email: null,

@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { Timestamp } from "firebase/firestore";
 
 interface ChatMessage {
     id: string;
@@ -8,7 +7,7 @@ interface ChatMessage {
     displayName: string | null;
     photoURL: string | null;
     decryptedText: string;
-    timestamp: Timestamp;
+    timestamp: number;
 }
 
 interface MessageProps {
@@ -19,7 +18,7 @@ interface MessageProps {
 export default function Message({ message, isCurrentUser }: MessageProps) {
   const { displayName, photoURL, decryptedText, timestamp } = message;
 
-  const messageDate = timestamp ? timestamp.toDate() : new Date();
+  const messageDate = new Date(timestamp);
   const timeString = messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (

@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import type { User } from "firebase/auth";
-import { collection, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { ref, get, update } from "firebase/database";
 import { Loader2, AlertTriangle } from "lucide-react";
 
 import {
@@ -17,27 +17,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { firestore } from "@/lib/firebase";
+import { database } from "@/lib/firebase";
 
 interface DeleteChatsDialogProps {
     isOpen: boolean;
     onOpenChange: (isOpen: boolean) => void;
     user: User;
-}
-
-// Helper function to delete all documents in a collection or subcollection
-async function deleteCollection(collectionPath: string) {
-    const collectionRef = collection(firestore, collectionPath);
-    const q = query(collectionRef);
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) return;
-
-    const batch = writeBatch(firestore);
-    querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-    await batch.commit();
 }
 
 export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: DeleteChatsDialogProps) {
@@ -48,26 +33,34 @@ export default function DeleteChatsDialog({ isOpen, onOpenChange, user }: Delete
         setIsDeleting(true);
 
         try {
-            const chatsQuery = query(collection(firestore, 'chats'), where('participantUids', 'array-contains', user.uid));
-            const chatsSnapshot = await getDocs(chatsQuery);
+            const userChatsRef = ref(database, `userChats/${user.uid}`);
+            const userChatsSnap = await get(userChatsRef);
             
-            if (chatsSnapshot.empty) {
+            if (!userChatsSnap.exists()) {
                 toast({ title: "No chats to delete." });
                 setIsDeleting(false);
                 onOpenChange(false);
                 return;
             }
 
-            const batch = writeBatch(firestore);
-            
-            for (const chatDoc of chatsSnapshot.docs) {
-                // Delete all messages in the subcollection first
-                await deleteCollection(`chats/${chatDoc.id}/messages`);
-                // Then, add the chat document deletion to the batch
-                batch.delete(chatDoc.ref);
+            const chatIds = Object.keys(userChatsSnap.val());
+            const updates: { [key: string]: null } = {};
+
+            for (const chatId of chatIds) {
+                const chatSnap = await get(ref(database, `chats/${chatId}`));
+                if (chatSnap.exists()) {
+                    const participants = Object.keys(chatSnap.val().participants);
+                    for (const participantId of participants) {
+                        updates[`/userChats/${participantId}/${chatId}`] = null;
+                    }
+                }
+                updates[`/chats/${chatId}`] = null;
+                updates[`/messages/${chatId}`] = null;
             }
-            
-            await batch.commit();
+
+            if (Object.keys(updates).length > 0) {
+              await update(ref(database), updates);
+            }
 
             toast({
                 title: "Success",

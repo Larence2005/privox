@@ -4,19 +4,18 @@
 import { useState, useEffect, useRef } from "react";
 import type { User } from "firebase/auth";
 import {
-  collection,
+  ref,
   query,
-  orderBy,
-  onSnapshot,
-  addDoc,
+  orderByChild,
+  onValue,
+  push,
   serverTimestamp,
-  updateDoc,
-  doc,
-  Timestamp,
-} from "firebase/firestore";
+  update,
+  off,
+} from "firebase/database";
 import { Send, ArrowLeft } from "lucide-react";
 import type { ChatWithParticipants } from "@/app/page";
-import { firestore } from "@/lib/firebase";
+import { database } from "@/lib/firebase";
 import { encryptMessage, decryptMessage } from "@/lib/crypto";
 import Message from "./message";
 import { Button } from "./ui/button";
@@ -31,7 +30,7 @@ interface ChatMessage {
   iv: string;
   encryptedText: string;
   decryptedText: string;
-  timestamp: Timestamp;
+  timestamp: number;
 }
 
 export default function ChatInterface({ 
@@ -47,7 +46,7 @@ export default function ChatInterface({
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  const otherParticipant = chat.participants.find(p => p.uid !== user.uid);
+  const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -56,24 +55,29 @@ export default function ChatInterface({
   useEffect(() => {
     if (!chat.id) return;
 
-    const messagesRef = collection(firestore, "chats", chat.id, "messages");
-    const q = query(messagesRef, orderBy("timestamp"));
+    const messagesRef = ref(database, `messages/${chat.id}`);
+    const q = query(messagesRef, orderByChild("timestamp"));
     
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const messagePromises = snapshot.docs.map(async (doc) => {
-        const data = doc.data();
-        if (!data.timestamp) return null;
+    const listener = onValue(q, async (snapshot) => {
+      if (!snapshot.exists()) {
+        setMessages([]);
+        return;
+      }
+      
+      const messagesData = snapshot.val();
+      const messagePromises = Object.keys(messagesData).map(async (key) => {
+        const data = messagesData[key];
         try {
           const decryptedText = await decryptMessage(data.encryptedText, data.iv);
           return {
-            id: doc.id,
+            id: key,
             ...data,
             decryptedText,
           } as ChatMessage;
         } catch (error) {
           console.error("Failed to decrypt a message:", error);
           return {
-            id: doc.id,
+            id: key,
             ...data,
             decryptedText: "Could not decrypt message.",
           } as ChatMessage;
@@ -81,10 +85,11 @@ export default function ChatInterface({
       });
       
       const resolvedMessages = (await Promise.all(messagePromises)).filter(m => m !== null) as ChatMessage[];
+      resolvedMessages.sort((a, b) => a.timestamp - b.timestamp);
       setMessages(resolvedMessages);
     });
 
-    return () => unsubscribe();
+    return () => off(messagesRef, 'value', listener);
   }, [chat.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,14 +110,14 @@ export default function ChatInterface({
       timestamp: serverTimestamp(),
     };
     
-    const messagesRef = collection(firestore, "chats", chat.id, "messages");
-    await addDoc(messagesRef, messageData);
+    const newMessageRef = push(ref(database, `messages/${chat.id}`));
+    
+    const updates: { [key: string]: any } = {};
+    updates[`/messages/${chat.id}/${newMessageRef.key}`] = messageData;
+    updates[`/chats/${chat.id}/lastMessage`] = currentMessage.length > 40 ? `${currentMessage.substring(0, 40)}...` : currentMessage;
+    updates[`/chats/${chat.id}/timestamp`] = serverTimestamp();
 
-    const chatRef = doc(firestore, "chats", chat.id);
-    await updateDoc(chatRef, {
-        lastMessage: currentMessage.length > 40 ? `${currentMessage.substring(0, 40)}...` : currentMessage,
-        timestamp: serverTimestamp(),
-    });
+    await update(ref(database), updates);
   };
 
   if (!otherParticipant) {
