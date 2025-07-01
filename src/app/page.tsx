@@ -13,7 +13,7 @@ import {
   off,
   set,
 } from "firebase/database";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -31,6 +31,22 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import ChatInterface from "@/components/chat-interface";
@@ -75,12 +91,25 @@ export default function Home() {
   const [newChatUserId, setNewChatUserId] = useState("");
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState<ChatWithParticipants | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    const blockedUsersRef = ref(database, `users/${user.uid}/blocked`);
+    const listener = onValue(blockedUsersRef, (snapshot) => {
+        const blockedData = snapshot.val();
+        setBlockedUsers(new Set(blockedData ? Object.keys(blockedData) : []));
+    });
+    return () => off(blockedUsersRef, 'value', listener);
+  }, [user]);
 
   const processChatData = useCallback(async (chatId: string, chatData: any): Promise<ChatWithParticipants | null> => {
       if (!user || !chatData || !chatData.participants) return null;
@@ -217,6 +246,53 @@ export default function Home() {
     });
   };
 
+  const handleBlockToggle = async (otherUserId: string) => {
+    if (!user) return;
+    const isBlocked = blockedUsers.has(otherUserId);
+    const blockedUserRef = ref(database, `users/${user.uid}/blocked/${otherUserId}`);
+    try {
+        if (isBlocked) {
+            await set(blockedUserRef, null); // Unblock
+            toast({ title: "User Unblocked", description: "You can now chat with this user." });
+        } else {
+            await set(blockedUserRef, true); // Block
+            if (selectedChat?.participantsData.some(p => p.uid === otherUserId)) {
+                setSelectedChat(null);
+            }
+            toast({ title: "User Blocked", description: "You will no longer see this user's chats." });
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Could not update block status." });
+    }
+  };
+
+  const handleDeleteChat = async () => {
+      if (!chatToDelete || !user) return;
+      
+      const updates: { [key: string]: null } = {};
+      updates[`/user-chats/${user.uid}/${chatToDelete.id}`] = null;
+      updates[`/chats/${chatToDelete.id}/participants/${user.uid}`] = null;
+      updates[`/chats/${chatToDelete.id}/keys/${user.uid}`] = null;
+      
+      try {
+          await update(ref(database), updates);
+          toast({ title: "Chat Left", description: "The conversation has been removed from your list." });
+          if (selectedChat?.id === chatToDelete.id) {
+              setSelectedChat(null);
+          }
+      } catch (error) {
+           toast({ variant: "destructive", title: "Error", description: "Could not leave the chat." });
+      } finally {
+          setIsDeleteDialogOpen(false);
+          setChatToDelete(null);
+      }
+  };
+
+  const openDeleteDialog = (chat: ChatWithParticipants) => {
+      setChatToDelete(chat);
+      setIsDeleteDialogOpen(true);
+  };
+
   const handleCreateNewChat = async () => {
     if(!user) return;
     const trimmedId = newChatUserId.trim();
@@ -225,6 +301,18 @@ export default function Home() {
     if (trimmedId === user.uid) {
         toast({ variant: "destructive", title: "Error", description: "You cannot start a chat with yourself." });
         return;
+    }
+    
+    if (blockedUsers.has(trimmedId)) {
+        toast({ variant: "destructive", title: "User Blocked", description: "You cannot start a chat with a blocked user." });
+        return;
+    }
+    
+    const otherUserBlocksMeRef = ref(database, `users/${trimmedId}/blocked/${user.uid}`);
+    const otherUserBlocksMeSnap = await get(otherUserBlocksMeRef);
+    if (otherUserBlocksMeSnap.exists()) {
+      toast({ variant: 'destructive', title: 'Unable to Chat', description: 'You cannot send messages to this user.' });
+      return;
     }
 
     setIsCreatingChat(true);
@@ -252,7 +340,6 @@ export default function Home() {
             return;
         }
         
-        // --- New Public Key Encryption Flow ---
         const mySnap = await get(ref(database, `users/${user.uid}`));
         const myUserData = mySnap.val() as UserData;
         const otherUserData = otherUserSnap.val() as UserData;
@@ -268,7 +355,6 @@ export default function Home() {
         
         const wrappedKeyForSelf = await wrapChatKey(newChatKey, myPublicKey);
         const wrappedKeyForOther = await wrapChatKey(newChatKey, otherPublicKey);
-        // --- End New Public Key Encryption Flow ---
 
         const newChatRef = push(ref(database, 'chats'));
         const newChatId = newChatRef.key;
@@ -350,6 +436,11 @@ export default function Home() {
     );
   }
   
+  const filteredChats = chats.filter(chat => {
+    const otherParticipant = chat.participantsData.find(p => p.uid !== user?.uid);
+    return otherParticipant ? !blockedUsers.has(otherParticipant.uid) : false;
+  });
+
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card text-card-foreground">
       <header className="p-4 border-b flex items-center justify-between shrink-0">
@@ -389,35 +480,59 @@ export default function Home() {
         {isLoading && (
           <div className="p-4 text-center text-sm text-muted-foreground">Loading chats...</div>
         )}
-        {!isLoading && chats.length === 0 && (
-          <div className="p-4 text-center text-sm text-muted-foreground">No chats yet. Start a new one!</div>
+        {!isLoading && filteredChats.length === 0 && (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            {chats.length > 0 ? "All chats are with blocked users." : "No chats yet. Start a new one!"}
+          </div>
         )}
-        {chats.map(chat => {
+        {filteredChats.map(chat => {
             const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
             if (!otherParticipant) return null;
+            const isBlocked = blockedUsers.has(otherParticipant.uid);
             return (
-                <button
-                    key={chat.id}
-                    onClick={() => setSelectedChat(chat)}
-                    className={cn(
-                        "flex items-center gap-3 p-2 rounded-md w-full text-left transition-colors",
-                        selectedChat?.id === chat.id ? "bg-primary/10 text-primary-foreground" : "hover:bg-muted"
-                    )}
-                >
-                    <Avatar className="h-10 w-10">
-                        <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
-                        <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 overflow-hidden">
-                        <p className="font-semibold truncate">{otherParticipant.displayName}</p>
-                        <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
-                    </div>
-                    {chat.timestamp && (
-                         <div className="text-xs text-muted-foreground self-start">
-                            {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div key={chat.id} className="relative group/chat-item">
+                    <button
+                        onClick={() => setSelectedChat(chat)}
+                        className={cn(
+                            "flex items-center gap-3 p-2 rounded-md w-full text-left transition-colors pr-10",
+                            selectedChat?.id === chat.id ? "bg-primary/10" : "hover:bg-muted"
+                        )}
+                    >
+                        <Avatar className="h-10 w-10">
+                            <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
+                            <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 overflow-hidden">
+                            <p className="font-semibold truncate">{otherParticipant.displayName}</p>
+                            <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
                         </div>
-                    )}
-                </button>
+                        {chat.timestamp && (
+                             <div className="text-xs text-muted-foreground self-start">
+                                {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                        )}
+                    </button>
+                    <div className="absolute top-1 right-1">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover/chat-item:opacity-100 focus:opacity-100">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">Chat options</span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleBlockToggle(otherParticipant.uid)}>
+                                    <ShieldBan className="mr-2 h-4 w-4" />
+                                    <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openDeleteDialog(chat)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Leave Chat</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </div>
             )
         })}
       </nav>
@@ -483,6 +598,26 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to leave this chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the chat from your list. Other participants will not be affected. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setChatToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={handleDeleteChat}
+            >
+              Leave
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
