@@ -276,12 +276,12 @@ export default function Home() {
       
       try {
           await update(ref(database), updates);
-          toast({ title: "Chat Left", description: "The conversation has been removed from your list." });
+          toast({ title: "Chat Deleted", description: "The conversation has been removed from your list." });
           if (selectedChat?.id === chatToDelete.id) {
               setSelectedChat(null);
           }
       } catch (error) {
-           toast({ variant: "destructive", title: "Error", description: "Could not leave the chat." });
+           toast({ variant: "destructive", title: "Error", description: "Could not delete the chat." });
       } finally {
           setIsDeleteDialogOpen(false);
           setChatToDelete(null);
@@ -527,7 +527,7 @@ export default function Home() {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openDeleteDialog(chat)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
                                     <Trash2 className="mr-2 h-4 w-4" />
-                                    <span>Leave Chat</span>
+                                    <span>Delete Chat</span>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -602,9 +602,9 @@ export default function Home() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to leave this chat?</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure you want to delete this chat?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the chat from your list. Other participants will not be affected. This action cannot be undone.
+              This will permanently delete this chat from your list. Other participants will not be affected. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -613,7 +613,7 @@ export default function Home() {
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
               onClick={handleDeleteChat}
             >
-              Leave
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
