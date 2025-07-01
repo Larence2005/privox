@@ -13,7 +13,7 @@ import {
   off,
   set,
 } from "firebase/database";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash2, Trash } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -96,7 +96,6 @@ export default function Home() {
   const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<ChatWithParticipants | null>(null);
-  const [deletionType, setDeletionType] = useState<'me' | 'everyone' | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -286,43 +285,11 @@ export default function Home() {
     } finally {
       setIsDeleteDialogOpen(false);
       setChatToDelete(null);
-      setDeletionType(null);
     }
   };
 
-  const handleDeleteChatForEveryone = async () => {
-    if (!chatToDelete || !user || chatToDelete.createdBy !== user.uid) return;
-
-    const updates: { [key: string]: null } = {};
-    updates[`/chats/${chatToDelete.id}`] = null;
-    updates[`/messages/${chatToDelete.id}`] = null;
-    Object.keys(chatToDelete.participants).forEach(participantId => {
-        updates[`/user-chats/${participantId}/${chatToDelete.id}`] = null;
-    });
-
-    try {
-        await update(ref(database), updates);
-        toast({ title: "Chat Deleted", description: "The conversation has been permanently deleted for everyone." });
-    } catch (error) {
-         toast({ variant: "destructive", title: "Error", description: "Could not delete the chat for everyone. Check your security rules." });
-    } finally {
-        setIsDeleteDialogOpen(false);
-        setChatToDelete(null);
-        setDeletionType(null);
-    }
-  };
-
-  const handleConfirmDelete = () => {
-    if (deletionType === 'me') {
-        handleDeleteChatForMe();
-    } else if (deletionType === 'everyone') {
-        handleDeleteChatForEveryone();
-    }
-  };
-
-  const openDeleteDialog = (chat: ChatWithParticipants, type: 'me' | 'everyone') => {
+  const openDeleteDialog = (chat: ChatWithParticipants) => {
       setChatToDelete(chat);
-      setDeletionType(type);
       setIsDeleteDialogOpen(true);
   };
 
@@ -559,16 +526,10 @@ export default function Home() {
                                     <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => openDeleteDialog(chat, 'me')}>
+                                <DropdownMenuItem onClick={() => openDeleteDialog(chat)}>
                                     <Trash className="mr-2 h-4 w-4" />
                                     <span>Delete for me</span>
                                 </DropdownMenuItem>
-                                {chat.createdBy === user.uid && (
-                                    <DropdownMenuItem onClick={() => openDeleteDialog(chat, 'everyone')} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        <span>Delete for everyone</span>
-                                    </DropdownMenuItem>
-                                )}
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -642,23 +603,16 @@ export default function Home() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deletionType === 'everyone'
-                ? 'Delete this chat for everyone?'
-                : 'Delete this chat for you?'}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Delete this chat for you?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletionType === 'everyone'
-                ? "This will permanently delete this chat and all its messages for all participants. This action cannot be undone."
-                : "This will only remove the chat from your list. Other participants will still be able to see it."
-              }
+              This will only remove the chat from your list. Other participants will still be able to see it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setChatToDelete(null); setDeletionType(null); }}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setChatToDelete(null); }}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-              onClick={handleConfirmDelete}
+              onClick={handleDeleteChatForMe}
             >
               Delete
             </AlertDialogAction>
