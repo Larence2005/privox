@@ -13,7 +13,7 @@ import {
   update,
   off,
 } from "firebase/database";
-import { Send, ArrowLeft, Loader2, ShieldAlert } from "lucide-react";
+import { Send, ArrowLeft, Loader2, ShieldAlert, Users } from "lucide-react";
 import type { ChatWithParticipants } from "@/app/page";
 import { database } from "@/lib/firebase";
 import { 
@@ -54,6 +54,7 @@ export default function ChatInterface({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
+  const hasOtherUserLeft = !otherParticipant;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -143,7 +144,7 @@ export default function ChatInterface({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim() === "" || !chat.id || !chatKey) return;
+    if (newMessage.trim() === "" || !chat.id || !chatKey || hasOtherUserLeft) return;
 
     const currentMessage = newMessage;
     setNewMessage("");
@@ -169,15 +170,8 @@ export default function ChatInterface({
     await update(ref(database), updates);
   };
   
-  if (!otherParticipant) {
-    return (
-        <div className="flex flex-col items-center justify-center h-full bg-background text-muted-foreground p-4">
-            <p>Loading participant...</p>
-        </div>
-    );
-  }
-  
   if (!chatKey && !keyError) {
+    const headerDisplayName = otherParticipant?.displayName ?? "User Left";
     return (
         <div className="flex h-screen flex-col bg-background">
             <header className="flex items-center gap-3 p-2.5 border-b shrink-0 md:p-4">
@@ -186,11 +180,12 @@ export default function ChatInterface({
                     <span className="sr-only">Back to chats</span>
                 </Button>
                 <Avatar>
-                    <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
-                    <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                    <AvatarImage src={otherParticipant?.photoURL ?? undefined} alt={headerDisplayName} />
+                    <AvatarFallback>{hasOtherUserLeft ? <Users className="h-5 w-5 text-muted-foreground" /> : headerDisplayName.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div>
-                    <p className="font-semibold text-foreground">{otherParticipant.displayName}</p>
+                    <p className="font-semibold text-foreground">{headerDisplayName}</p>
+                    {hasOtherUserLeft && <p className="text-xs text-muted-foreground">This user has left the conversation.</p>}
                 </div>
             </header>
             <main className="flex flex-col flex-1 items-center justify-center text-muted-foreground">
@@ -210,11 +205,12 @@ export default function ChatInterface({
           <span className="sr-only">Back to chats</span>
         </Button>
         <Avatar>
-          <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
-          <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarImage src={otherParticipant?.photoURL ?? undefined} alt={otherParticipant?.displayName ?? "User Left"} />
+          <AvatarFallback>{hasOtherUserLeft ? <Users className="h-5 w-5 text-muted-foreground" /> : otherParticipant?.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
         <div>
-          <p className="font-semibold text-foreground">{otherParticipant.displayName}</p>
+          <p className="font-semibold text-foreground">{otherParticipant?.displayName ?? 'User Left'}</p>
+          {hasOtherUserLeft && <p className="text-xs text-muted-foreground">This user has left the conversation.</p>}
         </div>
       </header>
 
@@ -237,25 +233,31 @@ export default function ChatInterface({
       </main>
 
       <footer className="p-4 border-t shrink-0 bg-background/80 backdrop-blur-sm">
-        <form onSubmit={handleSubmit} className="flex items-center gap-3">
-          <Textarea
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type your encrypted message..."
-            className="flex-1 resize-none h-10"
-            rows={1}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e);
-              }
-            }}
-            disabled={!!keyError}
-          />
-          <Button type="submit" size="icon" disabled={!newMessage.trim() || !!keyError} aria-label="Send Message">
-            <Send />
-          </Button>
-        </form>
+        {hasOtherUserLeft ? (
+            <div className="text-center text-sm text-muted-foreground p-3 rounded-md border bg-muted">
+                You can no longer send messages to this conversation.
+            </div>
+        ) : (
+            <form onSubmit={handleSubmit} className="flex items-center gap-3">
+            <Textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type your encrypted message..."
+                className="flex-1 resize-none h-10"
+                rows={1}
+                onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                }
+                }}
+                disabled={!!keyError}
+            />
+            <Button type="submit" size="icon" disabled={!newMessage.trim() || !!keyError} aria-label="Send Message">
+                <Send />
+            </Button>
+            </form>
+        )}
       </footer>
     </div>
   );

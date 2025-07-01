@@ -128,9 +128,6 @@ export default function Home() {
           .filter(pSnap => pSnap.exists())
           .map(pSnap => pSnap.val() as UserData);
       
-      const otherParticipant = participantsData.find(p => p.uid !== uid);
-      if (!otherParticipant && participantsData.length > 0) return null;
-
       const clearedRef = ref(database, `cleared-chats/${uid}/${chatId}`);
       const clearedSnap = await get(clearedRef);
       const clearedTimestamp = clearedSnap.exists() ? clearedSnap.val() : undefined;
@@ -324,6 +321,10 @@ export default function Home() {
         // This is the last user, delete everything
         updates[`/chats/${chatToLeave.id}`] = null;
         updates[`/messages/${chatToLeave.id}`] = null;
+        // Also remove from all potential user-chats (though there should only be one left)
+        Object.keys(participants).forEach(uid => {
+            updates[`/user-chats/${uid}/${chatToLeave.id}`] = null;
+        });
         toast({ title: "Chat Deleted", description: "As you were the last participant, the conversation has been permanently deleted." });
       } else {
         // Just leave the chat
@@ -332,7 +333,7 @@ export default function Home() {
         toast({ title: "Chat Left", description: "You have left the conversation." });
       }
 
-      // Always remove from user-chats and cleared-chats
+      // Always remove from current user's user-chats and cleared-chats
       updates[`/user-chats/${user.uid}/${chatToLeave.id}`] = null;
       updates[`/cleared-chats/${user.uid}/${chatToLeave.id}`] = null;
 
@@ -500,6 +501,8 @@ export default function Home() {
   
   const filteredChats = chats.filter(chat => {
     const otherParticipant = chat.participantsData.find(p => p.uid !== user?.uid);
+    // If there is an other participant, check if they are blocked.
+    // If there isn't one (they left), still show the chat.
     return otherParticipant ? !blockedUsers.has(otherParticipant.uid) : true;
   });
 
@@ -549,8 +552,12 @@ export default function Home() {
         )}
         {filteredChats.map(chat => {
             const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
-            if (!otherParticipant) return null;
-            const isBlocked = blockedUsers.has(otherParticipant.uid);
+            const hasOtherUserLeft = !otherParticipant;
+            const isBlocked = otherParticipant ? blockedUsers.has(otherParticipant.uid) : false;
+            
+            const displayName = otherParticipant?.displayName ?? "User Left";
+            const photoURL = otherParticipant?.photoURL;
+
             return (
                 <div key={chat.id} className="relative group/chat-item">
                     <button
@@ -561,14 +568,16 @@ export default function Home() {
                         )}
                     >
                         <Avatar className="h-10 w-10">
-                            <AvatarImage src={otherParticipant.photoURL ?? undefined} alt={otherParticipant.displayName ?? "User"} />
-                            <AvatarFallback>{otherParticipant.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                            <AvatarImage src={photoURL ?? undefined} alt={displayName} />
+                            <AvatarFallback>{hasOtherUserLeft ? <Users className="h-4 w-4" /> : displayName?.charAt(0).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 overflow-hidden">
-                            <p className="font-semibold truncate">{otherParticipant.displayName}</p>
-                            <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
+                            <p className="font-semibold truncate">{displayName}</p>
+                            <p className="text-sm text-muted-foreground truncate">
+                                {hasOtherUserLeft ? "This user has left." : chat.lastMessage}
+                            </p>
                         </div>
-                        {chat.timestamp && (
+                        {!hasOtherUserLeft && chat.timestamp && (
                              <div className="text-xs text-muted-foreground self-start">
                                 {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
@@ -583,11 +592,15 @@ export default function Home() {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleBlockToggle(otherParticipant.uid)}>
-                                    <ShieldBan className="mr-2 h-4 w-4" />
-                                    <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
+                                {otherParticipant && (
+                                    <>
+                                        <DropdownMenuItem onClick={() => handleBlockToggle(otherParticipant.uid)}>
+                                            <ShieldBan className="mr-2 h-4 w-4" />
+                                            <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
                                 <DropdownMenuItem onClick={() => openClearDialog(chat)}>
                                     <History className="mr-2 h-4 w-4" />
                                     <span>Clear History</span>
