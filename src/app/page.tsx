@@ -13,7 +13,7 @@ import {
   off,
   set,
 } from "firebase/database";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash, History } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash2, History } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -97,6 +97,8 @@ export default function Home() {
   const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
   const [chatToClear, setChatToClear] = useState<ChatWithParticipants | null>(null);
+  const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false);
+  const [chatToLeave, setChatToLeave] = useState<ChatWithParticipants | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -305,6 +307,52 @@ export default function Home() {
   const openClearDialog = (chat: ChatWithParticipants) => {
       setChatToClear(chat);
       setIsClearDialogOpen(true);
+  };
+  
+  const handleLeaveChat = async () => {
+    if (!chatToLeave || !user) return;
+
+    try {
+      const participantsRef = ref(database, `chats/${chatToLeave.id}/participants`);
+      const participantsSnap = await get(participantsRef);
+      const participants = participantsSnap.val() ?? {};
+      const participantsCount = Object.keys(participants).length;
+
+      const updates: { [key: string]: any } = {};
+
+      if (participantsCount <= 1) {
+        // This is the last user, delete everything
+        updates[`/chats/${chatToLeave.id}`] = null;
+        updates[`/messages/${chatToLeave.id}`] = null;
+        toast({ title: "Chat Deleted", description: "As you were the last participant, the conversation has been permanently deleted." });
+      } else {
+        // Just leave the chat
+        updates[`/chats/${chatToLeave.id}/participants/${user.uid}`] = null;
+        updates[`/chats/${chatToLeave.id}/keys/${user.uid}`] = null;
+        toast({ title: "Chat Left", description: "You have left the conversation." });
+      }
+
+      // Always remove from user-chats and cleared-chats
+      updates[`/user-chats/${user.uid}/${chatToLeave.id}`] = null;
+      updates[`/cleared-chats/${user.uid}/${chatToLeave.id}`] = null;
+
+      await update(ref(database), updates);
+
+      if (selectedChat?.id === chatToLeave.id) {
+        setSelectedChat(null);
+      }
+    } catch (error) {
+      console.error("Error leaving chat:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not leave the chat." });
+    } finally {
+      setIsLeaveDialogOpen(false);
+      setChatToLeave(null);
+    }
+  };
+
+  const openLeaveDialog = (chat: ChatWithParticipants) => {
+    setChatToLeave(chat);
+    setIsLeaveDialogOpen(true);
   };
 
   const handleCreateNewChat = async () => {
@@ -544,6 +592,10 @@ export default function Home() {
                                     <History className="mr-2 h-4 w-4" />
                                     <span>Clear History</span>
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openLeaveDialog(chat)} className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Leave Chat</span>
+                                </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -633,6 +685,30 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={isLeaveDialogOpen} onOpenChange={setIsLeaveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to leave this chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be removed from this conversation and will no longer receive messages. 
+              If you are the last person in the chat, the entire conversation will be permanently deleted.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setChatToLeave(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={handleLeaveChat}
+            >
+              Leave
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+    
