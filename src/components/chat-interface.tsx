@@ -227,12 +227,12 @@ export default function ChatInterface({
       </main>
 
       <footer className="p-4 border-t shrink-0 bg-background/80 backdrop-blur-sm">
-        <form onSubmit={handleSubmit} className="flex items-start gap-3">
+        <form onSubmit={handleSubmit} className="flex items-center gap-3">
           <Textarea
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Type your encrypted message..."
-            className="flex-1 resize-none"
+            className="flex-1 resize-none h-10"
             rows={1}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
