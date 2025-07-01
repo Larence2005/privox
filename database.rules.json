@@ -17,7 +17,7 @@
     "chats": {
       "$chatId": {
         ".read": "data.child('participants').child(auth.uid).exists()",
-        ".write": "data.child('participants').child(auth.uid).exists() || (!data.exists() && newData.child('participants').child(auth.uid).exists())",
+        ".write": "(data.child('participants').child(auth.uid).exists() && newData.exists()) || (!data.exists() && newData.child('participants').child(auth.uid).exists()) || (newData.val() === null && data.child('createdBy').val() === auth.uid)",
         ".validate": "!newData.exists() || (newData.hasChildren(['participants', 'timestamp', 'keys', 'createdBy', 'lastMessage']) && (!data.exists() || newData.child('createdBy').val() === data.child('createdBy').val()))"
       }
     },
@@ -25,7 +25,7 @@
       "$chatId": {
         ".indexOn": "timestamp",
         ".read": "root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
-        ".write": "root.child('chats/' + $chatId + '/participants/' + auth.uid).exists()",
+        ".write": "root.child('chats/' + $chatId + '/participants/' + auth.uid).exists() || (newData.val() === null && root.child('chats/' + $chatId + '/createdBy').val() === auth.uid)",
         "$messageId": {
           ".validate": "newData.hasChildren(['uid', 'displayName', 'photoURL', 'encryptedText', 'iv', 'timestamp']) && newData.child('uid').val() === auth.uid"
         }

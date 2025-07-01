@@ -13,7 +13,7 @@ import {
   off,
   set,
 } from "firebase/database";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash2 } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash2, Trash } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -36,6 +36,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -73,6 +74,7 @@ interface Chat {
   keys: Record<string, string>; // Storing wrapped keys as base64 strings
   lastMessage?: string;
   timestamp: number;
+  createdBy: string;
 }
 
 export interface ChatWithParticipants extends Chat {
@@ -94,6 +96,7 @@ export default function Home() {
   const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<ChatWithParticipants | null>(null);
+  const [deletionType, setDeletionType] = useState<'me' | 'everyone' | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -122,6 +125,9 @@ export default function Home() {
       const participantsData = participantSnaps
           .filter(pSnap => pSnap.exists())
           .map(pSnap => pSnap.val() as UserData);
+      
+      const otherParticipant = participantsData.find(p => p.uid !== user.uid);
+      if (!otherParticipant && participantsData.length > 0) return null;
 
       return {
           id: chatId,
@@ -266,30 +272,57 @@ export default function Home() {
     }
   };
 
-  const handleDeleteChat = async () => {
-      if (!chatToDelete || !user) return;
-      
-      const updates: { [key: string]: null } = {};
-      updates[`/user-chats/${user.uid}/${chatToDelete.id}`] = null;
-      updates[`/chats/${chatToDelete.id}/participants/${user.uid}`] = null;
-      updates[`/chats/${chatToDelete.id}/keys/${user.uid}`] = null;
-      
-      try {
-          await update(ref(database), updates);
-          toast({ title: "Chat Deleted", description: "The conversation has been removed from your list." });
-          if (selectedChat?.id === chatToDelete.id) {
-              setSelectedChat(null);
-          }
-      } catch (error) {
-           toast({ variant: "destructive", title: "Error", description: "Could not delete the chat." });
-      } finally {
-          setIsDeleteDialogOpen(false);
-          setChatToDelete(null);
+  const handleDeleteChatForMe = async () => {
+    if (!chatToDelete || !user) return;
+
+    try {
+      await set(ref(database, `/user-chats/${user.uid}/${chatToDelete.id}`), null);
+      toast({ title: "Chat Hidden", description: "The conversation has been removed from your list." });
+      if (selectedChat?.id === chatToDelete.id) {
+        setSelectedChat(null);
       }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Could not hide the chat." });
+    } finally {
+      setIsDeleteDialogOpen(false);
+      setChatToDelete(null);
+      setDeletionType(null);
+    }
   };
 
-  const openDeleteDialog = (chat: ChatWithParticipants) => {
+  const handleDeleteChatForEveryone = async () => {
+    if (!chatToDelete || !user || chatToDelete.createdBy !== user.uid) return;
+
+    const updates: { [key: string]: null } = {};
+    updates[`/chats/${chatToDelete.id}`] = null;
+    updates[`/messages/${chatToDelete.id}`] = null;
+    Object.keys(chatToDelete.participants).forEach(participantId => {
+        updates[`/user-chats/${participantId}/${chatToDelete.id}`] = null;
+    });
+
+    try {
+        await update(ref(database), updates);
+        toast({ title: "Chat Deleted", description: "The conversation has been permanently deleted for everyone." });
+    } catch (error) {
+         toast({ variant: "destructive", title: "Error", description: "Could not delete the chat for everyone. Check your security rules." });
+    } finally {
+        setIsDeleteDialogOpen(false);
+        setChatToDelete(null);
+        setDeletionType(null);
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (deletionType === 'me') {
+        handleDeleteChatForMe();
+    } else if (deletionType === 'everyone') {
+        handleDeleteChatForEveryone();
+    }
+  };
+
+  const openDeleteDialog = (chat: ChatWithParticipants, type: 'me' | 'everyone') => {
       setChatToDelete(chat);
+      setDeletionType(type);
       setIsDeleteDialogOpen(true);
   };
 
@@ -438,7 +471,7 @@ export default function Home() {
   
   const filteredChats = chats.filter(chat => {
     const otherParticipant = chat.participantsData.find(p => p.uid !== user?.uid);
-    return otherParticipant ? !blockedUsers.has(otherParticipant.uid) : false;
+    return otherParticipant ? !blockedUsers.has(otherParticipant.uid) : true;
   });
 
   const SidebarContent = () => (
@@ -525,10 +558,17 @@ export default function Home() {
                                     <ShieldBan className="mr-2 h-4 w-4" />
                                     <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openDeleteDialog(chat)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    <span>Delete Chat</span>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => openDeleteDialog(chat, 'me')}>
+                                    <Trash className="mr-2 h-4 w-4" />
+                                    <span>Delete for me</span>
                                 </DropdownMenuItem>
+                                {chat.createdBy === user.uid && (
+                                    <DropdownMenuItem onClick={() => openDeleteDialog(chat, 'everyone')} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>Delete for everyone</span>
+                                    </DropdownMenuItem>
+                                )}
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -602,16 +642,23 @@ export default function Home() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to delete this chat?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deletionType === 'everyone'
+                ? 'Delete this chat for everyone?'
+                : 'Delete this chat for you?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this chat from your list. Other participants will not be affected. This action cannot be undone.
+              {deletionType === 'everyone'
+                ? "This will permanently delete this chat and all its messages for all participants. This action cannot be undone."
+                : "This will only remove the chat from your list. Other participants will still be able to see it."
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setChatToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setChatToDelete(null); setDeletionType(null); }}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-              onClick={handleDeleteChat}
+              onClick={handleConfirmDelete}
             >
               Delete
             </AlertDialogAction>
