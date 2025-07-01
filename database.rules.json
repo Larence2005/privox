@@ -44,6 +44,12 @@
           ".write": "(auth.uid !== $uid && !data.exists() && newData.val() === true) || (auth.uid === $uid && newData.val() === null)"
         }
       }
+    },
+    "cleared-chats": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid"
+      }
     }
   }
 }

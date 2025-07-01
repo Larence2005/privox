@@ -13,7 +13,7 @@ import {
   off,
   set,
 } from "firebase/database";
-import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash } from "lucide-react";
+import { Copy, LogOut, MessageSquarePlus, Loader2, Users, Settings, MoreVertical, ShieldBan, Trash, History } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -79,6 +79,7 @@ interface Chat {
 
 export interface ChatWithParticipants extends Chat {
   participantsData: UserData[];
+  clearedTimestamp?: number;
 }
 
 export default function Home() {
@@ -94,8 +95,8 @@ export default function Home() {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [chatToDelete, setChatToDelete] = useState<ChatWithParticipants | null>(null);
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [chatToClear, setChatToClear] = useState<ChatWithParticipants | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -113,11 +114,11 @@ export default function Home() {
     return () => off(blockedUsersRef, 'value', listener);
   }, [user]);
 
-  const processChatData = useCallback(async (chatId: string, chatData: any): Promise<ChatWithParticipants | null> => {
-      if (!user || !chatData || !chatData.participants) return null;
+  const processChatData = useCallback(async (chatId: string, chatData: any, uid: string): Promise<ChatWithParticipants | null> => {
+      if (!chatData || !chatData.participants) return null;
 
       const participantUids = Object.keys(chatData.participants);
-      if (!participantUids.includes(user.uid)) return null;
+      if (!participantUids.includes(uid)) return null;
 
       const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
       const participantSnaps = await Promise.all(participantPromises);
@@ -125,15 +126,20 @@ export default function Home() {
           .filter(pSnap => pSnap.exists())
           .map(pSnap => pSnap.val() as UserData);
       
-      const otherParticipant = participantsData.find(p => p.uid !== user.uid);
+      const otherParticipant = participantsData.find(p => p.uid !== uid);
       if (!otherParticipant && participantsData.length > 0) return null;
+
+      const clearedRef = ref(database, `cleared-chats/${uid}/${chatId}`);
+      const clearedSnap = await get(clearedRef);
+      const clearedTimestamp = clearedSnap.exists() ? clearedSnap.val() : undefined;
 
       return {
           id: chatId,
           ...chatData,
           participantsData,
+          clearedTimestamp,
       };
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -198,7 +204,7 @@ export default function Home() {
                       return;
                   };
 
-                  const newChatData = await processChatData(chatId, chatSnap.val());
+                  const newChatData = await processChatData(chatId, chatSnap.val(), user.uid);
 
                   setChats(prevChats => {
                       if (!newChatData) {
@@ -271,26 +277,34 @@ export default function Home() {
     }
   };
 
-  const handleDeleteChatForMe = async () => {
-    if (!chatToDelete || !user) return;
+  const handleClearChatHistory = async () => {
+    if (!chatToClear || !user) return;
 
     try {
-      await set(ref(database, `/user-chats/${user.uid}/${chatToDelete.id}`), null);
-      toast({ title: "Chat Hidden", description: "The conversation has been removed from your list." });
-      if (selectedChat?.id === chatToDelete.id) {
-        setSelectedChat(null);
+      const clearedRef = ref(database, `cleared-chats/${user.uid}/${chatToClear.id}`);
+      await set(clearedRef, serverTimestamp());
+      
+      toast({ title: "Chat History Cleared", description: "Messages have been cleared from your view." });
+      
+      const now = Date.now();
+      setChats(prev => prev.map(c => 
+          c.id === chatToClear.id ? { ...c, clearedTimestamp: now } : c
+      ));
+
+      if (selectedChat?.id === chatToClear.id) {
+          setSelectedChat(prev => prev ? { ...prev, clearedTimestamp: now } : null);
       }
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Could not hide the chat." });
+      toast({ variant: "destructive", title: "Error", description: "Could not clear chat history." });
     } finally {
-      setIsDeleteDialogOpen(false);
-      setChatToDelete(null);
+      setIsClearDialogOpen(false);
+      setChatToClear(null);
     }
   };
 
-  const openDeleteDialog = (chat: ChatWithParticipants) => {
-      setChatToDelete(chat);
-      setIsDeleteDialogOpen(true);
+  const openClearDialog = (chat: ChatWithParticipants) => {
+      setChatToClear(chat);
+      setIsClearDialogOpen(true);
   };
 
   const handleCreateNewChat = async () => {
@@ -526,9 +540,9 @@ export default function Home() {
                                     <span>{isBlocked ? 'Unblock User' : 'Block User'}</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => openDeleteDialog(chat)}>
-                                    <Trash className="mr-2 h-4 w-4" />
-                                    <span>Delete for me</span>
+                                <DropdownMenuItem onClick={() => openClearDialog(chat)}>
+                                    <History className="mr-2 h-4 w-4" />
+                                    <span>Clear History</span>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -600,21 +614,21 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this chat for you?</AlertDialogTitle>
+            <AlertDialogTitle>Clear Chat History?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will only remove the chat from your list. Other participants will still be able to see it.
+              This will remove all messages in this conversation from your view.
+              Other participants will not be affected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setChatToDelete(null); }}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setChatToClear(null); }}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-              onClick={handleDeleteChatForMe}
+              onClick={handleClearChatHistory}
             >
-              Delete
+              Clear History
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

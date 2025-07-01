@@ -92,7 +92,12 @@ export default function ChatInterface({
   }, [chat, user.uid]);
 
   useEffect(() => {
-    if (!chat.id || !chatKey) return;
+    if (!chat.id || !chatKey) {
+        if (!chatKey) {
+            setMessages([]);
+        }
+        return;
+    }
 
     const messagesRef = ref(database, `messages/${chat.id}`);
     const q = query(messagesRef, orderByChild("timestamp"));
@@ -123,13 +128,18 @@ export default function ChatInterface({
         }
       });
       
-      const resolvedMessages = (await Promise.all(messagePromises)).filter(m => m !== null) as ChatMessage[];
+      let resolvedMessages = (await Promise.all(messagePromises)).filter(m => m !== null) as ChatMessage[];
+      
+      if (chat.clearedTimestamp) {
+        resolvedMessages = resolvedMessages.filter(msg => msg.timestamp > chat.clearedTimestamp);
+      }
+      
       resolvedMessages.sort((a, b) => a.timestamp - b.timestamp);
       setMessages(resolvedMessages);
     });
 
     return () => off(messagesRef, 'value', listener);
-  }, [chat.id, chatKey]);
+  }, [chat.id, chatKey, chat.clearedTimestamp]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
