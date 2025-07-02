@@ -54,7 +54,7 @@ export default function ChatInterface({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
-  const hasOtherUserLeft = !otherParticipant;
+  const hasOtherUserLeft = otherParticipant ? !chat.participants[otherParticipant.uid] : true;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

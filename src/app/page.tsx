@@ -61,17 +61,21 @@ import {
     wrapChatKey
 } from "@/lib/crypto";
 
-interface UserData {
+interface ParticipantInfo {
+    displayName: string | null;
+    photoURL: string | null;
+}
+
+interface UserData extends ParticipantInfo {
   uid: string;
-  displayName: string | null;
-  photoURL: string | null;
   publicKey?: string;
 }
 
 interface Chat {
   id: string;
   participants: Record<string, boolean>;
-  keys: Record<string, string>; // Storing wrapped keys as base64 strings
+  participantInfo?: Record<string, ParticipantInfo>;
+  keys: Record<string, string>;
   lastMessage?: string;
   timestamp: number;
   createdBy: string;
@@ -99,6 +103,8 @@ export default function Home() {
   const [chatToClear, setChatToClear] = useState<ChatWithParticipants | null>(null);
   const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false);
   const [chatToLeave, setChatToLeave] = useState<ChatWithParticipants | null>(null);
+  const [isLeavingChat, setIsLeavingChat] = useState(false);
+
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -118,15 +124,24 @@ export default function Home() {
 
   const processChatData = useCallback(async (chatId: string, chatData: any, uid: string): Promise<ChatWithParticipants | null> => {
       if (!chatData || !chatData.participants) return null;
+      if (!Object.keys(chatData.participants).includes(uid) && !chatData.participantInfo?.[uid]) return null;
 
-      const participantUids = Object.keys(chatData.participants);
-      if (!participantUids.includes(uid)) return null;
+      let participantsData: UserData[];
+      const participantUids = chatData.participantInfo ? Object.keys(chatData.participantInfo) : Object.keys(chatData.participants);
 
-      const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
-      const participantSnaps = await Promise.all(participantPromises);
-      const participantsData = participantSnaps
-          .filter(pSnap => pSnap.exists())
-          .map(pSnap => pSnap.val() as UserData);
+      if (chatData.participantInfo) {
+          participantsData = participantUids.map(pUid => ({
+              uid: pUid,
+              displayName: chatData.participantInfo[pUid]?.displayName ?? "Unknown User",
+              photoURL: chatData.participantInfo[pUid]?.photoURL ?? null
+          }));
+      } else {
+          const participantPromises = participantUids.map(uid => get(ref(database, `users/${uid}`)));
+          const participantSnaps = await Promise.all(participantPromises);
+          participantsData = participantSnaps
+              .filter(pSnap => pSnap.exists())
+              .map(pSnap => pSnap.val() as UserData);
+      }
       
       const clearedRef = ref(database, `cleared-chats/${uid}/${chatId}`);
       const clearedSnap = await get(clearedRef);
@@ -308,32 +323,47 @@ export default function Home() {
   
   const handleLeaveChat = async () => {
     if (!chatToLeave || !user) return;
+    setIsLeavingChat(true);
 
     try {
-      const participantsRef = ref(database, `chats/${chatToLeave.id}/participants`);
-      const participantsSnap = await get(participantsRef);
-      const participants = participantsSnap.val() ?? {};
-      const participantsCount = Object.keys(participants).length;
+      const chatRef = ref(database, `chats/${chatToLeave.id}`);
+      const chatSnap = await get(chatRef);
+      if (!chatSnap.exists()) return;
 
+      const chatData = chatSnap.val();
+      const participants = chatData.participants ?? {};
+      const participantsCount = Object.keys(participants).length;
       const updates: { [key: string]: any } = {};
 
+      if (!chatData.participantInfo) {
+        const pUids = Object.keys(participants);
+        const pSnaps = await Promise.all(pUids.map(uid => get(ref(database, `users/${uid}`))));
+        const newParticipantInfo: Record<string, ParticipantInfo> = {};
+        pSnaps.forEach(pSnap => {
+            if(pSnap.exists()){
+                const userData = pSnap.val();
+                newParticipantInfo[userData.uid] = {
+                    displayName: userData.displayName,
+                    photoURL: userData.photoURL
+                }
+            }
+        });
+        updates[`/chats/${chatToLeave.id}/participantInfo`] = newParticipantInfo;
+      }
+
       if (participantsCount <= 1) {
-        // This is the last user, delete everything
         updates[`/chats/${chatToLeave.id}`] = null;
         updates[`/messages/${chatToLeave.id}`] = null;
-        // Also remove from all potential user-chats (though there should only be one left)
         Object.keys(participants).forEach(uid => {
             updates[`/user-chats/${uid}/${chatToLeave.id}`] = null;
         });
         toast({ title: "Chat Deleted", description: "As you were the last participant, the conversation has been permanently deleted." });
       } else {
-        // Just leave the chat
         updates[`/chats/${chatToLeave.id}/participants/${user.uid}`] = null;
         updates[`/chats/${chatToLeave.id}/keys/${user.uid}`] = null;
         toast({ title: "Chat Left", description: "You have left the conversation." });
       }
 
-      // Always remove from current user's user-chats and cleared-chats
       updates[`/user-chats/${user.uid}/${chatToLeave.id}`] = null;
       updates[`/cleared-chats/${user.uid}/${chatToLeave.id}`] = null;
 
@@ -348,6 +378,7 @@ export default function Home() {
     } finally {
       setIsLeaveDialogOpen(false);
       setChatToLeave(null);
+      setIsLeavingChat(false);
     }
   };
 
@@ -424,8 +455,20 @@ export default function Home() {
         if (!newChatId) throw new Error("Could not generate new chat ID");
         
         const participants = { [user.uid]: true, [trimmedId]: true };
+        const participantInfo = {
+            [user.uid]: {
+                displayName: myUserData.displayName,
+                photoURL: myUserData.photoURL,
+            },
+            [trimmedId]: {
+                displayName: otherUserData.displayName,
+                photoURL: otherUserData.photoURL,
+            },
+        };
+
         const chatData = {
             participants,
+            participantInfo,
             keys: {
                 [user.uid]: wrappedKeyForSelf,
                 [trimmedId]: wrappedKeyForOther,
@@ -501,8 +544,6 @@ export default function Home() {
   
   const filteredChats = chats.filter(chat => {
     const otherParticipant = chat.participantsData.find(p => p.uid !== user?.uid);
-    // If there is an other participant, check if they are blocked.
-    // If there isn't one (they left), still show the chat.
     return otherParticipant ? !blockedUsers.has(otherParticipant.uid) : true;
   });
 
@@ -552,7 +593,7 @@ export default function Home() {
         )}
         {filteredChats.map(chat => {
             const otherParticipant = chat.participantsData.find(p => p.uid !== user.uid);
-            const hasOtherUserLeft = !otherParticipant;
+            const hasOtherUserLeft = otherParticipant ? !chat.participants[otherParticipant.uid] : true;
             const isBlocked = otherParticipant ? blockedUsers.has(otherParticipant.uid) : false;
             
             const displayName = otherParticipant?.displayName ?? "User Left";
@@ -569,7 +610,7 @@ export default function Home() {
                     >
                         <Avatar className="h-10 w-10">
                             <AvatarImage src={photoURL ?? undefined} alt={displayName} />
-                            <AvatarFallback>{hasOtherUserLeft ? <Users className="h-4 w-4" /> : displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                            <AvatarFallback>{displayName?.charAt(0).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 overflow-hidden">
                             <p className="font-semibold truncate">{displayName}</p>
@@ -714,7 +755,9 @@ export default function Home() {
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
               onClick={handleLeaveChat}
+              disabled={isLeavingChat}
             >
+              {isLeavingChat && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Leave
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -723,5 +766,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
